@@ -2,14 +2,12 @@ import SwiftUI
 import UIKit
 
 struct ContentView: View {
+    @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
     @State private var isShowingQuickLog = false
 
-    private let recentCategories = [
-        QuickLogCategory(name: "Mood", icon: "face.smiling", color: .yellow, recentItems: ["Calm", "Focused", "Tired"]),
-        QuickLogCategory(name: "Health", icon: "heart.text.square", color: .red, recentItems: ["Headache", "Sleep", "Medication"]),
-        QuickLogCategory(name: "Workout", icon: "figure.run", color: .green, recentItems: ["Run", "Walk", "Stretch"]),
-        QuickLogCategory(name: "Learning", icon: "book", color: .indigo, recentItems: ["SwiftUI", "Reading", "Course"])
-    ]
+    private var categories: [EventCategory] {
+        EventCategoryStorage.decode(storedCategories)
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -56,23 +54,15 @@ struct ContentView: View {
             .offset(y: -10)
         }
         .sheet(isPresented: $isShowingQuickLog) {
-            QuickLogCategorySheet(categories: recentCategories)
+            QuickLogCategorySheet(categories: categories)
                 .presentationDetents([.height(360), .medium])
                 .presentationDragIndicator(.visible)
         }
     }
 }
 
-private struct QuickLogCategory: Identifiable {
-    let id = UUID()
-    let name: String
-    let icon: String
-    let color: Color
-    let recentItems: [String]
-}
-
 private struct QuickLogCategorySheet: View {
-    let categories: [QuickLogCategory]
+    let categories: [EventCategory]
     @Environment(\.dismiss) private var dismiss
     @State private var selectedCategoryIndex = 0
     @State private var isShowingCategoryManagement = false
@@ -117,14 +107,14 @@ private struct QuickLogCategorySheet: View {
         }
     }
 
-    private func categoryPage(_ category: QuickLogCategory) -> some View {
+    private func categoryPage(_ category: EventCategory) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Image(systemName: category.icon)
                     .font(.title2.weight(.semibold))
-                    .foregroundStyle(category.color)
+                    .foregroundStyle(category.tintColor)
                     .frame(width: 44, height: 44)
-                    .background(category.color.opacity(0.14))
+                    .background(category.tintColor.opacity(0.14))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 Text(category.name)
@@ -133,20 +123,27 @@ private struct QuickLogCategorySheet: View {
                 Spacer()
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 12)], spacing: 12) {
-                ForEach(category.recentItems, id: \.self) { item in
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        dismiss()
-                    } label: {
-                        Text(item)
-                            .font(.body.weight(.medium))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
+            if category.presetItems.isEmpty {
+                Text("No presets yet")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 80)
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 12)], spacing: 12) {
+                    ForEach(category.presetItems, id: \.self) { item in
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            dismiss()
+                        } label: {
+                            Text(item)
+                                .font(.body.weight(.medium))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 52)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(category.tintColor)
+                        .accessibilityLabel("Log \(item)")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(category.color)
-                    .accessibilityLabel("Log \(item)")
                 }
             }
 

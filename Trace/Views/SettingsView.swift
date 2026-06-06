@@ -1,12 +1,15 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
     @State private var hapticsEnabled = true
     @State private var showDailySummary = true
     @State private var requireConfirmationBeforeDelete = true
     @State private var defaultCategory = "Health"
 
-    private let defaultCategories = ["Mood", "Health", "Workout", "Learning"]
+    private var categories: [EventCategory] {
+        EventCategoryStorage.decode(storedCategories)
+    }
 
     var body: some View {
         NavigationStack {
@@ -18,14 +21,19 @@ struct SettingsView: View {
                 aboutSection
             }
             .navigationTitle("Settings")
+            .onAppear(perform: updateDefaultCategoryIfNeeded)
+            .onChange(of: storedCategories) { _, _ in
+                updateDefaultCategoryIfNeeded()
+            }
         }
     }
 
     private var loggingSection: some View {
         Section("Logging") {
             Picker("Default Category", selection: $defaultCategory) {
-                ForEach(defaultCategories, id: \.self) { category in
-                    Text(category)
+                ForEach(categories) { category in
+                    Label(category.name, systemImage: category.icon)
+                        .tag(category.name)
                 }
             }
 
@@ -37,16 +45,20 @@ struct SettingsView: View {
 
     private var categoriesSection: some View {
         Section("Categories") {
-            SettingsNavigationRow(
-                title: "Manage Categories",
-                detail: "4 active",
-                systemImage: "square.grid.2x2",
-                color: .blue
-            )
+            NavigationLink {
+                CategoriesView()
+            } label: {
+                SettingsRowContent(
+                    title: "Manage Categories",
+                    detail: "\(categories.count) active",
+                    systemImage: "square.grid.2x2",
+                    color: .blue
+                )
+            }
 
             SettingsNavigationRow(
                 title: "Preset Items",
-                detail: "18 presets",
+                detail: "\(categories.reduce(0) { $0 + $1.presetItems.count }) presets",
                 systemImage: "list.bullet.rectangle",
                 color: .indigo
             )
@@ -105,6 +117,11 @@ struct SettingsView: View {
                 color: .secondary
             )
         }
+    }
+
+    private func updateDefaultCategoryIfNeeded() {
+        guard !categories.contains(where: { $0.name == defaultCategory }) else { return }
+        defaultCategory = categories.first?.name ?? ""
     }
 }
 
