@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct EventCategory: Identifiable, Codable, Equatable {
+    static let fallbackIcon = "square.grid.2x2"
+
     let id: UUID
     var name: String
     var icon: String
@@ -9,7 +11,7 @@ struct EventCategory: Identifiable, Codable, Equatable {
     init(id: UUID = UUID(), name: String, icon: String, tintName: String) {
         self.id = id
         self.name = name
-        self.icon = icon
+        self.icon = Self.normalizedIcon(icon)
         self.tintName = tintName
     }
 
@@ -23,6 +25,11 @@ struct EventCategory: Identifiable, Codable, Equatable {
         EventCategory(id: EventCategoryID.workout, name: "Workout", icon: "figure.run", tintName: "Green"),
         EventCategory(id: EventCategoryID.learning, name: "Learning", icon: "book", tintName: "Indigo")
     ]
+
+    private static func normalizedIcon(_ icon: String) -> String {
+        let trimmedIcon = icon.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedIcon.isEmpty ? fallbackIcon : trimmedIcon
+    }
 }
 
 struct EventPresetItem: Identifiable, Codable, Equatable {
@@ -69,7 +76,9 @@ enum EventCategoryStorage {
             return EventCategory.defaults
         }
 
-        return categories
+        return categories.map {
+            EventCategory(id: $0.id, name: $0.name, icon: $0.icon, tintName: $0.tintName)
+        }
     }
 
     static func encode(_ categories: [EventCategory]) -> String {
