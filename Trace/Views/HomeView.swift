@@ -135,7 +135,9 @@ struct HomeView: View {
             SectionHeader(title: "Last Event", systemImage: "clock")
 
             if let lastEvent {
-                EventRow(event: lastEvent, showsDivider: false)
+                EventRow(event: lastEvent, showsDivider: false) {
+                    removeEvent(lastEvent)
+                }
             } else {
                 EmptyHomeState(message: "No events logged yet")
             }
@@ -191,7 +193,9 @@ struct HomeView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(recentEvents.enumerated()), id: \.element.id) { index, event in
-                        EventRow(event: event, showsDivider: index < recentEvents.count - 1)
+                        EventRow(event: event, showsDivider: index < recentEvents.count - 1) {
+                            removeEvent(event)
+                        }
                     }
                 }
             }
@@ -199,6 +203,10 @@ struct HomeView: View {
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func removeEvent(_ event: HomeEvent) {
+        storedEvents = LoggedEventStorage.removing(eventID: event.id, from: storedEvents)
     }
 
     private func homeEvent(from event: LoggedEvent) -> HomeEvent? {
@@ -304,6 +312,8 @@ private struct EmptyHomeState: View {
 private struct EventRow: View {
     let event: HomeEvent
     let showsDivider: Bool
+    let onDelete: () -> Void
+    @State private var isShowingDeleteConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -329,6 +339,26 @@ private struct EventRow: View {
                 Text(event.time)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+
+                Button(role: .destructive) {
+                    isShowingDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Remove \(event.title)")
+                .confirmationDialog(
+                    "Remove logged event?",
+                    isPresented: $isShowingDeleteConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Remove Event", role: .destructive, action: onDelete)
+                } message: {
+                    Text("This removes \"\(event.title)\" from your logged events.")
+                }
             }
             .frame(minHeight: 52)
 

@@ -172,7 +172,9 @@ struct CalendarView: View {
                             category: categoryName(for: event),
                             time: Self.timeFormatter.string(from: event.loggedAt),
                             color: categoryColor(for: event)
-                        )
+                        ) {
+                            removeEvent(event)
+                        }
 
                         if index < selectedDayEvents.count - 1 {
                             Divider().padding(.leading, 12)
@@ -206,6 +208,10 @@ struct CalendarView: View {
         .background(selectedCategoryID == categoryID ? Color.blue : Color(.secondarySystemGroupedBackground))
         .clipShape(Capsule())
         .accessibilityAddTraits(selectedCategoryID == categoryID ? .isSelected : [])
+    }
+
+    private func removeEvent(_ event: LoggedEvent) {
+        storedEvents = LoggedEventStorage.removing(eventID: event.id, from: storedEvents)
     }
 
     private func category(for event: LoggedEvent) -> EventCategory? {
@@ -293,6 +299,8 @@ private struct CalendarEventRow: View {
     let category: String
     let time: String
     let color: Color
+    let onDelete: () -> Void
+    @State private var isShowingDeleteConfirmation = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -314,6 +322,26 @@ private struct CalendarEventRow: View {
             Text(time)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+            Button(role: .destructive) {
+                isShowingDeleteConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Remove \(title)")
+            .confirmationDialog(
+                "Remove logged event?",
+                isPresented: $isShowingDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Remove Event", role: .destructive, action: onDelete)
+            } message: {
+                Text("This removes \"\(title)\" from your logged events.")
+            }
         }
         .frame(minHeight: 50)
     }

@@ -108,6 +108,11 @@ enum LoggedEventStorage {
 
         return data
     }
+
+    static func removing(eventID: UUID, from data: String) -> String {
+        let events = decode(data).filter { $0.id != eventID }
+        return encode(events)
+    }
 }
 
 enum EventCategoryStorage {
