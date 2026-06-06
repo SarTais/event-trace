@@ -130,6 +130,13 @@ private struct CategoryEditorView: View {
     @Binding var draft: CategoryDraft
     let onSave: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedField: EditorField?
+    @State private var isShowingColorOptions = false
+
+    private enum EditorField {
+        case name
+        case presets
+    }
 
     private let iconChoices = [
         "square.grid.2x2",
@@ -152,11 +159,54 @@ private struct CategoryEditorView: View {
         Form {
             Section("Details") {
                 TextField("Name", text: $draft.name)
+                    .focused($focusedField, equals: .name)
 
-                Picker("Color", selection: $draft.tintName) {
+                Button {
+                    focusedField = nil
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        isShowingColorOptions.toggle()
+                    }
+                } label: {
+                    HStack {
+                        Text("Color")
+                            .foregroundStyle(.primary)
+
+                        Spacer()
+
+                        ColorPickerRow(name: draft.tintName)
+                            .foregroundStyle(.secondary)
+
+                        Image(systemName: isShowingColorOptions ? "chevron.up" : "chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if isShowingColorOptions {
                     ForEach(EventCategoryTint.names, id: \.self) { name in
-                        Label(name, systemImage: "circle.fill")
-                            .foregroundStyle(EventCategoryTint.color(named: name))
+                        Button {
+                            draft.tintName = name
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                isShowingColorOptions = false
+                            }
+                        } label: {
+                            HStack {
+                                ColorPickerRow(name: name)
+                                    .foregroundStyle(.primary)
+
+                                Spacer()
+
+                                if draft.tintName == name {
+                                    Image(systemName: "checkmark")
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -184,9 +234,16 @@ private struct CategoryEditorView: View {
 
             Section("Preset Items") {
                 TextField("Headache, Sleep, Medication", text: $draft.presetText, axis: .vertical)
+                    .focused($focusedField, equals: .presets)
                     .lineLimit(2...4)
             }
         }
+        .scrollDismissesKeyboard(.interactively)
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                focusedField = nil
+            }
+        )
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -202,6 +259,32 @@ private struct CategoryEditorView: View {
                 }
                 .disabled(!canSave)
             }
+
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+
+                Button("Done") {
+                    focusedField = nil
+                }
+            }
+        }
+    }
+}
+
+private struct ColorPickerRow: View {
+    let name: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(EventCategoryTint.color(named: name))
+                .frame(width: 14, height: 14)
+                .overlay {
+                    Circle()
+                        .stroke(Color(.separator), lineWidth: 0.5)
+                }
+
+            Text(name)
         }
     }
 }
