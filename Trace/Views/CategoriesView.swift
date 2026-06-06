@@ -2,7 +2,9 @@ import SwiftUI
 
 struct CategoriesView: View {
     @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
+    @AppStorage(EventPresetStorage.key) private var storedPresets = ""
     @State private var categories = EventCategory.defaults
+    @State private var presets = EventPresetItem.defaults
     @State private var draftCategory = CategoryDraft()
     @State private var editingCategory: EventCategory?
     @State private var isShowingEditor = false
@@ -16,7 +18,7 @@ struct CategoriesView: View {
                         draftCategory = CategoryDraft(category: category)
                         isShowingEditor = true
                     } label: {
-                        CategoryManagementRow(category: category)
+                        CategoryManagementRow(category: category, presetCount: presetCount(for: category))
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("Edit category")
@@ -26,7 +28,7 @@ struct CategoriesView: View {
             } header: {
                 Text("Active Categories")
             } footer: {
-                Text("These categories appear in quick logging and settings. Presets are shown as fast logging shortcuts.")
+                Text("These categories appear in quick logging and settings. Presets are linked separately as fast logging shortcuts.")
             }
         }
         .navigationTitle("Categories")
@@ -56,10 +58,22 @@ struct CategoriesView: View {
 
     private func loadCategories() {
         categories = EventCategoryStorage.decode(storedCategories)
+        presets = EventPresetStorage.decode(storedPresets, categoriesData: storedCategories)
+        persistPresetsIfNeeded()
     }
 
     private func persistCategories() {
         storedCategories = EventCategoryStorage.encode(categories)
+    }
+
+    private func persistPresets() {
+        storedPresets = EventPresetStorage.encode(presets)
+    }
+
+    private func persistPresetsIfNeeded() {
+        if storedPresets.isEmpty {
+            persistPresets()
+        }
     }
 
     private func saveDraft() {
@@ -80,6 +94,12 @@ struct CategoriesView: View {
         categories.remove(atOffsets: offsets)
         if categories.isEmpty {
             categories = EventCategory.defaults
+            presets = EventPresetItem.defaults
+            persistPresets()
+        } else {
+            let categoryIDs = Set(categories.map(\.id))
+            presets.removeAll { !categoryIDs.contains($0.categoryID) }
+            persistPresets()
         }
         persistCategories()
     }
@@ -88,10 +108,15 @@ struct CategoriesView: View {
         categories.move(fromOffsets: source, toOffset: destination)
         persistCategories()
     }
+
+    private func presetCount(for category: EventCategory) -> Int {
+        presets.filter { $0.categoryID == category.id }.count
+    }
 }
 
 private struct CategoryManagementRow: View {
     let category: EventCategory
+    let presetCount: Int
 
     var body: some View {
         HStack(spacing: 12) {
@@ -106,7 +131,7 @@ private struct CategoryManagementRow: View {
                 Text(category.name)
                     .font(.body.weight(.semibold))
 
-                Text(category.presetItems.joined(separator: ", "))
+                Text(presetCount == 1 ? "1 linked preset" : "\(presetCount) linked presets")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -135,7 +160,6 @@ private struct CategoryEditorView: View {
 
     private enum EditorField {
         case name
-        case presets
     }
 
     private let iconChoices = [
@@ -232,10 +256,10 @@ private struct CategoryEditorView: View {
                 .padding(.vertical, 4)
             }
 
-            Section("Preset Items") {
-                TextField("Headache, Sleep, Medication", text: $draft.presetText, axis: .vertical)
-                    .focused($focusedField, equals: .presets)
-                    .lineLimit(2...4)
+            Section {
+                Text("Manage preset shortcuts from Settings so each preset stays linked to one category.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
         }
         .scrollDismissesKeyboard(.interactively)
@@ -293,7 +317,6 @@ private struct CategoryDraft {
     var name = ""
     var icon = "square.grid.2x2"
     var tintName = "Blue"
-    var presetText = ""
 
     init() {}
 
@@ -301,7 +324,6 @@ private struct CategoryDraft {
         name = category.name
         icon = category.icon
         tintName = category.tintName
-        presetText = category.presetItems.joined(separator: ", ")
     }
 
     var tintColor: Color {
@@ -313,11 +335,7 @@ private struct CategoryDraft {
             id: existingID ?? UUID(),
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             icon: icon,
-            tintName: tintName,
-            presetItems: presetText
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
+            tintName: tintName
         )
     }
 }

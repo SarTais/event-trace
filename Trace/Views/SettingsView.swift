@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
+    @AppStorage(EventPresetStorage.key) private var storedPresets = ""
     @State private var hapticsEnabled = true
     @State private var showDailySummary = true
     @State private var requireConfirmationBeforeDelete = true
@@ -9,6 +10,10 @@ struct SettingsView: View {
 
     private var categories: [EventCategory] {
         EventCategoryStorage.decode(storedCategories)
+    }
+
+    private var presets: [EventPresetItem] {
+        EventPresetStorage.decode(storedPresets, categoriesData: storedCategories)
     }
 
     var body: some View {
@@ -56,12 +61,16 @@ struct SettingsView: View {
                 )
             }
 
-            SettingsNavigationRow(
-                title: "Preset Items",
-                detail: "\(categories.reduce(0) { $0 + $1.presetItems.count }) presets",
-                systemImage: "list.bullet.rectangle",
-                color: .indigo
-            )
+            NavigationLink {
+                PresetItemsView()
+            } label: {
+                SettingsRowContent(
+                    title: "Preset Items",
+                    detail: "\(presets.count) presets",
+                    systemImage: "list.bullet.rectangle",
+                    color: .indigo
+                )
+            }
         }
     }
 
@@ -137,6 +146,169 @@ private struct SettingsNavigationRow: View {
         } label: {
             SettingsRowContent(title: title, detail: detail, systemImage: systemImage, color: color)
         }
+    }
+}
+
+private struct PresetItemsView: View {
+    @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
+    @AppStorage(EventPresetStorage.key) private var storedPresets = ""
+
+    private var categories: [EventCategory] {
+        EventCategoryStorage.decode(storedCategories)
+    }
+
+    private var presets: [EventPresetItem] {
+        EventPresetStorage.decode(storedPresets, categoriesData: storedCategories)
+    }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(categories) { category in
+                    NavigationLink {
+                        PresetCategoryEditorView(categoryID: category.id)
+                    } label: {
+                        SettingsRowContent(
+                            title: category.name,
+                            detail: presetCountText(for: category, presets: presets),
+                            systemImage: category.icon,
+                            color: category.tintColor
+                        )
+                    }
+                }
+            } footer: {
+                Text("Presets appear as quick-log shortcuts for each category.")
+            }
+        }
+        .navigationTitle("Preset Items")
+        .onAppear(perform: persistPresetsIfNeeded)
+    }
+
+    private func presetCountText(for category: EventCategory, presets: [EventPresetItem]) -> String {
+        let count = presets.filter { $0.categoryID == category.id }.count
+        return count == 1 ? "1 preset" : "\(count) presets"
+    }
+
+    private func persistPresetsIfNeeded() {
+        if storedPresets.isEmpty {
+            storedPresets = EventPresetStorage.encode(presets)
+        }
+    }
+}
+
+private struct PresetCategoryEditorView: View {
+    @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
+    @AppStorage(EventPresetStorage.key) private var storedPresets = ""
+    let categoryID: UUID
+    @State private var newPresetName = ""
+    @FocusState private var isAddingPreset: Bool
+
+    private var categories: [EventCategory] {
+        EventCategoryStorage.decode(storedCategories)
+    }
+
+    private var category: EventCategory? {
+        categories.first { $0.id == categoryID }
+    }
+
+    private var presets: [EventPresetItem] {
+        EventPresetStorage.decode(storedPresets, categoriesData: storedCategories)
+    }
+
+    private var categoryPresets: [EventPresetItem] {
+        presets.filter { $0.categoryID == categoryID }
+    }
+
+    private var canAddPreset: Bool {
+        guard category != nil else { return false }
+        let trimmedName = trimmedNewPresetName
+        return !trimmedName.isEmpty && !categoryPresets.contains { $0.name.localizedCaseInsensitiveCompare(trimmedName) == .orderedSame }
+    }
+
+    private var trimmedNewPresetName: String {
+        newPresetName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        List {
+            if let category {
+                Section {
+                    ForEach(categoryPresets) { preset in
+                        Text(preset.name)
+                            .font(.body)
+                    }
+                    .onDelete(perform: deletePresets)
+                    .onMove(perform: movePresets)
+                } header: {
+                    Text(category.name)
+                } footer: {
+                    if categoryPresets.isEmpty {
+                        Text("Add lightweight shortcuts for events you log often.")
+                    }
+                }
+
+                Section("Add Preset") {
+                    HStack(spacing: 12) {
+                        TextField("Preset name", text: $newPresetName)
+                            .focused($isAddingPreset)
+                            .submitLabel(.done)
+                            .onSubmit(addPreset)
+
+                        Button {
+                            addPreset()
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title3)
+                        }
+                        .disabled(!canAddPreset)
+                        .accessibilityLabel("Add preset")
+                    }
+                }
+            } else {
+                ContentUnavailableView("Category Not Found", systemImage: "list.bullet.rectangle")
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle(category?.name ?? "Presets")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                EditButton()
+                    .disabled(categoryPresets.isEmpty)
+            }
+
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+
+                Button("Done") {
+                    isAddingPreset = false
+                }
+            }
+        }
+    }
+
+    private func addPreset() {
+        guard canAddPreset else { return }
+        var updatedPresets = presets
+        updatedPresets.append(EventPresetItem(categoryID: categoryID, name: trimmedNewPresetName))
+        storedPresets = EventPresetStorage.encode(updatedPresets)
+        newPresetName = ""
+        isAddingPreset = false
+    }
+
+    private func deletePresets(at offsets: IndexSet) {
+        let presetIDsToDelete = offsets.map { categoryPresets[$0].id }
+        var updatedPresets = presets
+        updatedPresets.removeAll { presetIDsToDelete.contains($0.id) }
+        storedPresets = EventPresetStorage.encode(updatedPresets)
+    }
+
+    private func movePresets(from source: IndexSet, to destination: Int) {
+        var reorderedCategoryPresets = categoryPresets
+        reorderedCategoryPresets.move(fromOffsets: source, toOffset: destination)
+
+        let otherPresets = presets.filter { $0.categoryID != categoryID }
+        storedPresets = EventPresetStorage.encode(otherPresets + reorderedCategoryPresets)
     }
 }
 

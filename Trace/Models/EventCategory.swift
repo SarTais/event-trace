@@ -5,14 +5,12 @@ struct EventCategory: Identifiable, Codable, Equatable {
     var name: String
     var icon: String
     var tintName: String
-    var presetItems: [String]
 
-    init(id: UUID = UUID(), name: String, icon: String, tintName: String, presetItems: [String]) {
+    init(id: UUID = UUID(), name: String, icon: String, tintName: String) {
         self.id = id
         self.name = name
         self.icon = icon
         self.tintName = tintName
-        self.presetItems = presetItems
     }
 
     var tintColor: Color {
@@ -20,11 +18,45 @@ struct EventCategory: Identifiable, Codable, Equatable {
     }
 
     static let defaults = [
-        EventCategory(name: "Mood", icon: "face.smiling", tintName: "Yellow", presetItems: ["Calm", "Focused", "Tired"]),
-        EventCategory(name: "Health", icon: "heart.text.square", tintName: "Red", presetItems: ["Headache", "Sleep", "Medication"]),
-        EventCategory(name: "Workout", icon: "figure.run", tintName: "Green", presetItems: ["Run", "Walk", "Stretch"]),
-        EventCategory(name: "Learning", icon: "book", tintName: "Indigo", presetItems: ["SwiftUI", "Reading", "Course"])
+        EventCategory(id: EventCategoryID.mood, name: "Mood", icon: "face.smiling", tintName: "Yellow"),
+        EventCategory(id: EventCategoryID.health, name: "Health", icon: "heart.text.square", tintName: "Red"),
+        EventCategory(id: EventCategoryID.workout, name: "Workout", icon: "figure.run", tintName: "Green"),
+        EventCategory(id: EventCategoryID.learning, name: "Learning", icon: "book", tintName: "Indigo")
     ]
+}
+
+struct EventPresetItem: Identifiable, Codable, Equatable {
+    let id: UUID
+    var categoryID: UUID
+    var name: String
+
+    init(id: UUID = UUID(), categoryID: UUID, name: String) {
+        self.id = id
+        self.categoryID = categoryID
+        self.name = name
+    }
+
+    static let defaults = [
+        EventPresetItem(categoryID: EventCategoryID.mood, name: "Calm"),
+        EventPresetItem(categoryID: EventCategoryID.mood, name: "Focused"),
+        EventPresetItem(categoryID: EventCategoryID.mood, name: "Tired"),
+        EventPresetItem(categoryID: EventCategoryID.health, name: "Headache"),
+        EventPresetItem(categoryID: EventCategoryID.health, name: "Sleep"),
+        EventPresetItem(categoryID: EventCategoryID.health, name: "Medication"),
+        EventPresetItem(categoryID: EventCategoryID.workout, name: "Run"),
+        EventPresetItem(categoryID: EventCategoryID.workout, name: "Walk"),
+        EventPresetItem(categoryID: EventCategoryID.workout, name: "Stretch"),
+        EventPresetItem(categoryID: EventCategoryID.learning, name: "SwiftUI"),
+        EventPresetItem(categoryID: EventCategoryID.learning, name: "Reading"),
+        EventPresetItem(categoryID: EventCategoryID.learning, name: "Course")
+    ]
+}
+
+private enum EventCategoryID {
+    static let mood = UUID(uuidString: "00000000-0000-0000-0000-000000000001") ?? UUID()
+    static let health = UUID(uuidString: "00000000-0000-0000-0000-000000000002") ?? UUID()
+    static let workout = UUID(uuidString: "00000000-0000-0000-0000-000000000003") ?? UUID()
+    static let learning = UUID(uuidString: "00000000-0000-0000-0000-000000000004") ?? UUID()
 }
 
 enum EventCategoryStorage {
@@ -48,6 +80,52 @@ enum EventCategoryStorage {
 
         return data
     }
+}
+
+enum EventPresetStorage {
+    static let key = "eventPresetItems"
+
+    static func decode(_ data: String, categoriesData: String = "") -> [EventPresetItem] {
+        if let jsonData = data.data(using: .utf8),
+           let presets = try? JSONDecoder().decode([EventPresetItem].self, from: jsonData) {
+            return presets
+        }
+
+        if let migratedPresets = migrateLegacyPresets(from: categoriesData) {
+            return migratedPresets
+        }
+
+        return EventPresetItem.defaults
+    }
+
+    static func encode(_ presets: [EventPresetItem]) -> String {
+        guard let jsonData = try? JSONEncoder().encode(presets),
+              let data = String(data: jsonData, encoding: .utf8) else {
+            return ""
+        }
+
+        return data
+    }
+
+    private static func migrateLegacyPresets(from categoriesData: String) -> [EventPresetItem]? {
+        guard let jsonData = categoriesData.data(using: .utf8),
+              let legacyCategories = try? JSONDecoder().decode([LegacyEventCategory].self, from: jsonData) else {
+            return nil
+        }
+
+        let presets = legacyCategories.flatMap { category in
+            category.presetItems.map {
+                EventPresetItem(categoryID: category.id, name: $0)
+            }
+        }
+
+        return presets.isEmpty ? nil : presets
+    }
+}
+
+private struct LegacyEventCategory: Decodable {
+    let id: UUID
+    let presetItems: [String]
 }
 
 enum EventCategoryTint {

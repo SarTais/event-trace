@@ -3,10 +3,15 @@ import UIKit
 
 struct ContentView: View {
     @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
+    @AppStorage(EventPresetStorage.key) private var storedPresets = ""
     @State private var isShowingQuickLog = false
 
     private var categories: [EventCategory] {
         EventCategoryStorage.decode(storedCategories)
+    }
+
+    private var presets: [EventPresetItem] {
+        EventPresetStorage.decode(storedPresets, categoriesData: storedCategories)
     }
 
     var body: some View {
@@ -54,7 +59,7 @@ struct ContentView: View {
             .offset(y: -10)
         }
         .sheet(isPresented: $isShowingQuickLog) {
-            QuickLogCategorySheet(categories: categories)
+            QuickLogCategorySheet(categories: categories, presets: presets)
                 .presentationDetents([.height(360), .medium])
                 .presentationDragIndicator(.visible)
         }
@@ -63,6 +68,7 @@ struct ContentView: View {
 
 private struct QuickLogCategorySheet: View {
     let categories: [EventCategory]
+    let presets: [EventPresetItem]
     @Environment(\.dismiss) private var dismiss
     @State private var selectedCategoryIndex = 0
     @State private var isShowingCategoryManagement = false
@@ -108,7 +114,9 @@ private struct QuickLogCategorySheet: View {
     }
 
     private func categoryPage(_ category: EventCategory) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let categoryPresets = presets.filter { $0.categoryID == category.id }
+
+        return VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Image(systemName: category.icon)
                     .font(.title2.weight(.semibold))
@@ -123,26 +131,26 @@ private struct QuickLogCategorySheet: View {
                 Spacer()
             }
 
-            if category.presetItems.isEmpty {
+            if categoryPresets.isEmpty {
                 Text("No presets yet")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 80)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 12)], spacing: 12) {
-                    ForEach(category.presetItems, id: \.self) { item in
+                    ForEach(categoryPresets) { preset in
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             dismiss()
                         } label: {
-                            Text(item)
+                            Text(preset.name)
                                 .font(.body.weight(.medium))
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 52)
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(category.tintColor)
-                        .accessibilityLabel("Log \(item)")
+                        .accessibilityLabel("Log \(preset.name)")
                     }
                 }
             }
