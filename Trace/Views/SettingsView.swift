@@ -5,10 +5,9 @@ struct SettingsView: View {
     @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
     @AppStorage(EventPresetStorage.key) private var storedPresets = ""
     @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
-    @State private var hapticsEnabled = true
-    @State private var showDailySummary = true
-    @State private var requireConfirmationBeforeDelete = true
-    @State private var defaultCategory = "Health"
+    @AppStorage(TraceSettingsStorage.hapticsEnabledKey) private var hapticsEnabled = true
+    @AppStorage(TraceSettingsStorage.confirmBeforeDeleteKey) private var requireConfirmationBeforeDelete = true
+    @AppStorage(TraceSettingsStorage.defaultCategoryIDKey) private var defaultCategoryID = EventCategory.defaults.first?.id.uuidString ?? ""
     @State private var exportItem: TraceExportItem?
     @State private var exportErrorMessage = ""
     @State private var isShowingExportError = false
@@ -52,15 +51,14 @@ struct SettingsView: View {
 
     private var loggingSection: some View {
         Section("Logging") {
-            Picker("Default Category", selection: $defaultCategory) {
+            Picker("Default Category", selection: $defaultCategoryID) {
                 ForEach(categories) { category in
                     Label(category.name, systemImage: category.icon)
-                        .tag(category.name)
+                        .tag(category.id.uuidString)
                 }
             }
 
             Toggle("Subtle Haptics", isOn: $hapticsEnabled)
-            Toggle("Daily Summary", isOn: $showDailySummary)
             Toggle("Confirm Before Delete", isOn: $requireConfirmationBeforeDelete)
         }
     }
@@ -166,8 +164,8 @@ struct SettingsView: View {
     }
 
     private func updateDefaultCategoryIfNeeded() {
-        guard !categories.contains(where: { $0.name == defaultCategory }) else { return }
-        defaultCategory = categories.first?.name ?? ""
+        guard !categories.contains(where: { $0.id.uuidString == defaultCategoryID }) else { return }
+        defaultCategoryID = categories.first?.id.uuidString ?? ""
     }
 
     private func exportExcel() {

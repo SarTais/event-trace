@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
     @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
+    @AppStorage(TraceSettingsStorage.confirmBeforeDeleteKey) private var requireConfirmationBeforeDelete = true
 
     private var categories: [EventCategory] {
         EventCategoryStorage.decode(storedCategories)
@@ -135,7 +136,11 @@ struct HomeView: View {
             SectionHeader(title: "Last Event", systemImage: "clock")
 
             if let lastEvent {
-                EventRow(event: lastEvent, showsDivider: false) {
+                EventRow(
+                    event: lastEvent,
+                    showsDivider: false,
+                    requiresDeleteConfirmation: requireConfirmationBeforeDelete
+                ) {
                     removeEvent(lastEvent)
                 }
             } else {
@@ -193,7 +198,11 @@ struct HomeView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(recentEvents.enumerated()), id: \.element.id) { index, event in
-                        EventRow(event: event, showsDivider: index < recentEvents.count - 1) {
+                        EventRow(
+                            event: event,
+                            showsDivider: index < recentEvents.count - 1,
+                            requiresDeleteConfirmation: requireConfirmationBeforeDelete
+                        ) {
                             removeEvent(event)
                         }
                     }
@@ -312,6 +321,7 @@ private struct EmptyHomeState: View {
 private struct EventRow: View {
     let event: HomeEvent
     let showsDivider: Bool
+    let requiresDeleteConfirmation: Bool
     let onDelete: () -> Void
     @State private var isShowingDeleteConfirmation = false
 
@@ -341,7 +351,7 @@ private struct EventRow: View {
                     .foregroundStyle(.secondary)
 
                 Button(role: .destructive) {
-                    isShowingDeleteConfirmation = true
+                    delete()
                 } label: {
                     Image(systemName: "trash")
                         .font(.subheadline.weight(.semibold))
@@ -366,6 +376,14 @@ private struct EventRow: View {
                 Divider()
                     .padding(.leading, 50)
             }
+        }
+    }
+
+    private func delete() {
+        if requiresDeleteConfirmation {
+            isShowingDeleteConfirmation = true
+        } else {
+            onDelete()
         }
     }
 }

@@ -3,6 +3,7 @@ import SwiftUI
 struct CalendarView: View {
     @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
     @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
+    @AppStorage(TraceSettingsStorage.confirmBeforeDeleteKey) private var requireConfirmationBeforeDelete = true
     @State private var selectedCategoryID: UUID?
     @State private var selectedDate = Date()
 
@@ -171,7 +172,8 @@ struct CalendarView: View {
                             title: event.title,
                             category: categoryName(for: event),
                             time: Self.timeFormatter.string(from: event.loggedAt),
-                            color: categoryColor(for: event)
+                            color: categoryColor(for: event),
+                            requiresDeleteConfirmation: requireConfirmationBeforeDelete
                         ) {
                             removeEvent(event)
                         }
@@ -299,6 +301,7 @@ private struct CalendarEventRow: View {
     let category: String
     let time: String
     let color: Color
+    let requiresDeleteConfirmation: Bool
     let onDelete: () -> Void
     @State private var isShowingDeleteConfirmation = false
 
@@ -324,7 +327,7 @@ private struct CalendarEventRow: View {
                 .foregroundStyle(.secondary)
 
             Button(role: .destructive) {
-                isShowingDeleteConfirmation = true
+                delete()
             } label: {
                 Image(systemName: "trash")
                     .font(.subheadline.weight(.semibold))
@@ -344,6 +347,14 @@ private struct CalendarEventRow: View {
             }
         }
         .frame(minHeight: 50)
+    }
+
+    private func delete() {
+        if requiresDeleteConfirmation {
+            isShowingDeleteConfirmation = true
+        } else {
+            onDelete()
+        }
     }
 }
 
