@@ -310,7 +310,7 @@ private struct EventExportView: View {
 
                 SettingsActionRow(
                     title: "Export PDF",
-                    detail: "Doctor summary",
+                    detail: "Visual summary",
                     systemImage: "doc.richtext",
                     color: .red,
                     action: exportPDF
