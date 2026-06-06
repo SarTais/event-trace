@@ -1,12 +1,92 @@
 import SwiftUI
 
 struct CalendarView: View {
-    @State private var selectedCategory = "All"
+    @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
+    @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
+    @State private var selectedCategoryID: UUID?
+    @State private var selectedDate = Date()
 
-    private let categories = ["All", "Mood", "Health", "Workout", "Learning"]
     private let weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    private let days = CalendarDay.mockMonth
-    private let selectedDay = CalendarDay.mockMonth[17]
+
+    private var categories: [EventCategory] {
+        EventCategoryStorage.decode(storedCategories)
+    }
+
+    private var events: [LoggedEvent] {
+        LoggedEventStorage.decode(storedEvents)
+    }
+
+    private var filteredEvents: [LoggedEvent] {
+        guard let selectedCategoryID else {
+            return events
+        }
+
+        return events.filter { $0.categoryID == selectedCategoryID }
+    }
+
+    private var monthDays: [CalendarDay] {
+        let calendar = Calendar.current
+        let selectedDay = calendar.startOfDay(for: selectedDate)
+        let groupedEvents = Dictionary(grouping: filteredEvents) {
+            calendar.startOfDay(for: $0.loggedAt)
+        }
+
+        guard let month = calendar.dateInterval(of: .month, for: Date()),
+              let dayRange = calendar.range(of: .day, in: .month, for: month.start) else {
+            return []
+        }
+
+        return dayRange.compactMap { dayNumber in
+            guard let date = calendar.date(byAdding: .day, value: dayNumber - 1, to: month.start) else {
+                return nil
+            }
+
+            let dayStart = calendar.startOfDay(for: date)
+            let count = groupedEvents[dayStart, default: []].count
+
+            return CalendarDay(
+                id: dayStart,
+                date: dayStart,
+                number: dayNumber,
+                count: count,
+                intensity: min(count, 4),
+                isSelected: dayStart == selectedDay
+            )
+        }
+    }
+
+    private var selectedDayEvents: [LoggedEvent] {
+        let calendar = Calendar.current
+
+        return filteredEvents.filter {
+            calendar.isDate($0.loggedAt, inSameDayAs: selectedDate)
+        }
+    }
+
+    private var monthEventCount: Int {
+        let calendar = Calendar.current
+        guard let month = calendar.dateInterval(of: .month, for: Date()) else {
+            return 0
+        }
+
+        return filteredEvents.filter { month.contains($0.loggedAt) }.count
+    }
+
+    private var activeDaysThisMonth: Int {
+        let calendar = Calendar.current
+        guard let month = calendar.dateInterval(of: .month, for: Date()) else {
+            return 0
+        }
+
+        return filteredEvents.reduce(into: Set<Date>()) { days, event in
+            guard month.contains(event.loggedAt) else {
+                return
+            }
+
+            days.insert(calendar.startOfDay(for: event.loggedAt))
+        }
+        .count
+    }
 
     var body: some View {
         NavigationStack {
@@ -28,20 +108,10 @@ struct CalendarView: View {
     private var categoryFilter: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(categories, id: \.self) { category in
-                    Button {
-                        selectedCategory = category
-                    } label: {
-                        Text(category)
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 14)
-                            .frame(height: 36)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(selectedCategory == category ? .white : .primary)
-                    .background(selectedCategory == category ? Color.blue : Color(.secondarySystemGroupedBackground))
-                    .clipShape(Capsule())
-                    .accessibilityAddTraits(selectedCategory == category ? .isSelected : [])
+                categoryFilterButton(title: "All", categoryID: nil)
+
+                ForEach(categories) { category in
+                    categoryFilterButton(title: category.name, categoryID: category.id)
                 }
             }
             .padding(.vertical, 2)
@@ -50,25 +120,13 @@ struct CalendarView: View {
 
     private var monthOverview: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("June 2026")
-                        .font(.title3.weight(.semibold))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Self.monthFormatter.string(from: Date()))
+                    .font(.title3.weight(.semibold))
 
-                    Text("22 events across 12 active days")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Label("Mock", systemImage: "sparkles")
-                    .font(.caption.weight(.semibold))
+                Text(monthSummary)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .background(Color(.tertiarySystemGroupedBackground))
-                    .clipShape(Capsule())
             }
 
             HStack(spacing: 8) {
@@ -81,8 +139,13 @@ struct CalendarView: View {
             }
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: 8) {
-                ForEach(days) { day in
-                    CalendarDayCell(day: day)
+                ForEach(monthDays) { day in
+                    Button {
+                        selectedDate = day.date
+                    } label: {
+                        CalendarDayCell(day: day)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -93,65 +156,97 @@ struct CalendarView: View {
 
     private var detailSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("June \(selectedDay.number)", systemImage: "calendar.badge.clock")
+            Label(Self.selectedDayFormatter.string(from: selectedDate), systemImage: "calendar.badge.clock")
                 .font(.headline)
 
-            VStack(spacing: 0) {
-                CalendarEventRow(title: "Headache", category: "Health", time: "14:32", color: .red)
-                Divider().padding(.leading, 12)
-                CalendarEventRow(title: "Focused", category: "Mood", time: "11:10", color: .yellow)
-                Divider().padding(.leading, 12)
-                CalendarEventRow(title: "Walk", category: "Workout", time: "08:45", color: .green)
-            }
+            if selectedDayEvents.isEmpty {
+                Text("No events logged for this day")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(selectedDayEvents.enumerated()), id: \.element.id) { index, event in
+                        CalendarEventRow(
+                            title: event.title,
+                            category: categoryName(for: event),
+                            time: Self.timeFormatter.string(from: event.loggedAt),
+                            color: categoryColor(for: event)
+                        )
 
-            Text("Daily details will use logged events once persistence is connected.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                        if index < selectedDayEvents.count - 1 {
+                            Divider().padding(.leading, 12)
+                        }
+                    }
+                }
+            }
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
+
+    private var monthSummary: String {
+        let eventLabel = monthEventCount == 1 ? "event" : "events"
+        let dayLabel = activeDaysThisMonth == 1 ? "active day" : "active days"
+        return "\(monthEventCount) \(eventLabel) across \(activeDaysThisMonth) \(dayLabel)"
+    }
+
+    private func categoryFilterButton(title: String, categoryID: UUID?) -> some View {
+        Button {
+            selectedCategoryID = categoryID
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(selectedCategoryID == categoryID ? .white : .primary)
+        .background(selectedCategoryID == categoryID ? Color.blue : Color(.secondarySystemGroupedBackground))
+        .clipShape(Capsule())
+        .accessibilityAddTraits(selectedCategoryID == categoryID ? .isSelected : [])
+    }
+
+    private func category(for event: LoggedEvent) -> EventCategory? {
+        categories.first { $0.id == event.categoryID }
+    }
+
+    private func categoryName(for event: LoggedEvent) -> String {
+        category(for: event)?.name ?? "Deleted category"
+    }
+
+    private func categoryColor(for event: LoggedEvent) -> Color {
+        category(for: event)?.tintColor ?? .gray
+    }
+
+    private static let monthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter
+    }()
+
+    private static let selectedDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM d"
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
 }
 
 private struct CalendarDay: Identifiable {
-    let id = UUID()
+    let id: Date
+    let date: Date
     let number: Int
+    let count: Int
     let intensity: Int
     let isSelected: Bool
-
-    static let mockMonth: [CalendarDay] = [
-        CalendarDay(number: 1, intensity: 0, isSelected: false),
-        CalendarDay(number: 2, intensity: 1, isSelected: false),
-        CalendarDay(number: 3, intensity: 2, isSelected: false),
-        CalendarDay(number: 4, intensity: 0, isSelected: false),
-        CalendarDay(number: 5, intensity: 3, isSelected: false),
-        CalendarDay(number: 6, intensity: 1, isSelected: false),
-        CalendarDay(number: 7, intensity: 2, isSelected: false),
-        CalendarDay(number: 8, intensity: 4, isSelected: false),
-        CalendarDay(number: 9, intensity: 1, isSelected: false),
-        CalendarDay(number: 10, intensity: 0, isSelected: false),
-        CalendarDay(number: 11, intensity: 2, isSelected: false),
-        CalendarDay(number: 12, intensity: 3, isSelected: false),
-        CalendarDay(number: 13, intensity: 1, isSelected: false),
-        CalendarDay(number: 14, intensity: 2, isSelected: false),
-        CalendarDay(number: 15, intensity: 0, isSelected: false),
-        CalendarDay(number: 16, intensity: 1, isSelected: false),
-        CalendarDay(number: 17, intensity: 3, isSelected: false),
-        CalendarDay(number: 18, intensity: 4, isSelected: true),
-        CalendarDay(number: 19, intensity: 2, isSelected: false),
-        CalendarDay(number: 20, intensity: 0, isSelected: false),
-        CalendarDay(number: 21, intensity: 1, isSelected: false),
-        CalendarDay(number: 22, intensity: 0, isSelected: false),
-        CalendarDay(number: 23, intensity: 2, isSelected: false),
-        CalendarDay(number: 24, intensity: 1, isSelected: false),
-        CalendarDay(number: 25, intensity: 0, isSelected: false),
-        CalendarDay(number: 26, intensity: 3, isSelected: false),
-        CalendarDay(number: 27, intensity: 2, isSelected: false),
-        CalendarDay(number: 28, intensity: 0, isSelected: false),
-        CalendarDay(number: 29, intensity: 1, isSelected: false),
-        CalendarDay(number: 30, intensity: 0, isSelected: false)
-    ]
 }
 
 private struct CalendarDayCell: View {
@@ -174,7 +269,7 @@ private struct CalendarDayCell: View {
                 }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("June \(day.number), activity level \(day.intensity)")
+        .accessibilityLabel("Day \(day.number), \(day.count) events")
     }
 
     private var activityColor: Color {

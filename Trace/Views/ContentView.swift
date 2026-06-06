@@ -4,6 +4,7 @@ import UIKit
 struct ContentView: View {
     @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
     @AppStorage(EventPresetStorage.key) private var storedPresets = ""
+    @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
     @State private var isShowingQuickLog = false
 
     private var categories: [EventCategory] {
@@ -60,7 +61,11 @@ struct ContentView: View {
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .sheet(isPresented: $isShowingQuickLog) {
-            QuickLogCategorySheet(categories: categories, presets: presets)
+            QuickLogCategorySheet(
+                categories: categories,
+                presets: presets,
+                storedEvents: $storedEvents
+            )
                 .presentationDetents([.height(360), .medium])
                 .presentationDragIndicator(.visible)
         }
@@ -70,6 +75,7 @@ struct ContentView: View {
 private struct QuickLogCategorySheet: View {
     let categories: [EventCategory]
     let presets: [EventPresetItem]
+    @Binding var storedEvents: String
     @Environment(\.dismiss) private var dismiss
     @State private var selectedCategoryIndex = 0
     @State private var isShowingCategoryManagement = false
@@ -142,6 +148,7 @@ private struct QuickLogCategorySheet: View {
                     ForEach(categoryPresets) { preset in
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            log(preset, in: category)
                             dismiss()
                         } label: {
                             Text(preset.name)
@@ -161,6 +168,18 @@ private struct QuickLogCategorySheet: View {
         .padding(16)
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func log(_ preset: EventPresetItem, in category: EventCategory) {
+        var events = LoggedEventStorage.decode(storedEvents)
+        let event = LoggedEvent(
+            categoryID: category.id,
+            presetID: preset.id,
+            title: preset.name
+        )
+
+        events.insert(event, at: 0)
+        storedEvents = LoggedEventStorage.encode(events)
     }
 }
 

@@ -1,34 +1,135 @@
 import SwiftUI
 
 struct StatisticsView: View {
-    private let summaryMetrics = [
-        StatisticMetric(title: "Events", value: "48", detail: "+12% vs last week", color: .blue),
-        StatisticMetric(title: "Active Days", value: "18", detail: "Last 30 days", color: .green),
-        StatisticMetric(title: "Avg Intensity", value: "2.4", detail: "Moderate", color: .orange)
-    ]
+    @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
+    @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
 
-    private let weeklyFrequency = [
-        StatisticBar(label: "Mon", value: 6, color: .blue),
-        StatisticBar(label: "Tue", value: 4, color: .blue),
-        StatisticBar(label: "Wed", value: 8, color: .blue),
-        StatisticBar(label: "Thu", value: 3, color: .blue),
-        StatisticBar(label: "Fri", value: 7, color: .blue),
-        StatisticBar(label: "Sat", value: 5, color: .blue),
-        StatisticBar(label: "Sun", value: 2, color: .blue)
-    ]
+    private var categories: [EventCategory] {
+        EventCategoryStorage.decode(storedCategories)
+    }
 
-    private let categoryBreakdown = [
-        StatisticBar(label: "Mood", value: 14, color: .yellow),
-        StatisticBar(label: "Health", value: 12, color: .red),
-        StatisticBar(label: "Workout", value: 9, color: .green),
-        StatisticBar(label: "Learning", value: 13, color: .indigo)
-    ]
+    private var events: [LoggedEvent] {
+        LoggedEventStorage.decode(storedEvents)
+    }
 
-    private let timeOfDayPatterns = [
-        StatisticBar(label: "Morning", value: 16, color: .teal),
-        StatisticBar(label: "Afternoon", value: 21, color: .teal),
-        StatisticBar(label: "Evening", value: 11, color: .teal)
-    ]
+    private var recentEvents: [LoggedEvent] {
+        let calendar = Calendar.current
+        guard let startDate = calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: Date())) else {
+            return events
+        }
+
+        return events.filter { $0.loggedAt >= startDate }
+    }
+
+    private var summaryMetrics: [StatisticMetric] {
+        [
+            StatisticMetric(
+                title: "Events",
+                value: "\(recentEvents.count)",
+                detail: "Last 30 days",
+                color: .blue
+            ),
+            StatisticMetric(
+                title: "Active Days",
+                value: "\(activeDayCount)",
+                detail: "Last 30 days",
+                color: .green
+            ),
+            StatisticMetric(
+                title: "Top Category",
+                value: topCategoryName,
+                detail: topCategoryDetail,
+                color: .orange
+            )
+        ]
+    }
+
+    private var activeDayCount: Int {
+        let calendar = Calendar.current
+
+        return recentEvents.reduce(into: Set<Date>()) { days, event in
+            days.insert(calendar.startOfDay(for: event.loggedAt))
+        }
+        .count
+    }
+
+    private var topCategoryName: String {
+        guard let topCategory = topCategory else {
+            return "-"
+        }
+
+        return topCategory.category.name
+    }
+
+    private var topCategoryDetail: String {
+        guard let topCategory else {
+            return "No events yet"
+        }
+
+        return topCategory.count == 1 ? "1 event" : "\(topCategory.count) events"
+    }
+
+    private var topCategory: (category: EventCategory, count: Int)? {
+        let counts = Dictionary(grouping: recentEvents, by: \.categoryID)
+            .mapValues(\.count)
+
+        return categories
+            .compactMap { category -> (category: EventCategory, count: Int)? in
+                let count = counts[category.id, default: 0]
+                return count > 0 ? (category, count) : nil
+            }
+            .max { $0.count < $1.count }
+    }
+
+    private var weeklyFrequency: [StatisticBar] {
+        let calendar = Calendar.current
+        let symbols = calendar.shortWeekdaySymbols
+        let mondayFirstIndexes = [2, 3, 4, 5, 6, 7, 1]
+        let counts = Dictionary(grouping: recentEvents) {
+            calendar.component(.weekday, from: $0.loggedAt)
+        }
+        .mapValues(\.count)
+
+        return mondayFirstIndexes.map { weekday in
+            StatisticBar(
+                label: symbols[weekday - 1],
+                value: counts[weekday, default: 0],
+                color: .blue
+            )
+        }
+    }
+
+    private var categoryBreakdown: [StatisticBar] {
+        let counts = Dictionary(grouping: recentEvents, by: \.categoryID)
+            .mapValues(\.count)
+
+        return categories.map { category in
+            StatisticBar(
+                label: category.name,
+                value: counts[category.id, default: 0],
+                color: category.tintColor
+            )
+        }
+    }
+
+    private var timeOfDayPatterns: [StatisticBar] {
+        let periods = [
+            TimePeriod(label: "Morning", range: 5..<12),
+            TimePeriod(label: "Afternoon", range: 12..<17),
+            TimePeriod(label: "Evening", range: 17..<22),
+            TimePeriod(label: "Night", range: 0..<5)
+        ]
+        let calendar = Calendar.current
+
+        return periods.map { period in
+            let count = recentEvents.filter {
+                let hour = calendar.component(.hour, from: $0.loggedAt)
+                return period.range.contains(hour) || (period.label == "Night" && hour >= 22)
+            }.count
+
+            return StatisticBar(label: period.label, value: count, color: .teal)
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -58,6 +159,8 @@ struct StatisticsView: View {
 
                     Text(metric.value)
                         .font(.system(.title, design: .rounded, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
 
                     Text(metric.detail)
                         .font(.caption)
@@ -75,7 +178,7 @@ struct StatisticsView: View {
 
     private var weeklyFrequencySection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            StatisticSectionHeader(title: "Weekday Frequency", subtitle: "Events by day")
+            StatisticSectionHeader(title: "Weekday Frequency", subtitle: "Last 30 days")
             VerticalBarChart(bars: weeklyFrequency)
         }
         .padding(16)
@@ -100,7 +203,7 @@ struct StatisticsView: View {
 
     private var timeOfDaySection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            StatisticSectionHeader(title: "Time of Day", subtitle: "When events usually happen")
+            StatisticSectionHeader(title: "Time of Day", subtitle: "Last 30 days")
 
             VStack(spacing: 12) {
                 ForEach(timeOfDayPatterns) { bar in
@@ -129,6 +232,11 @@ private struct StatisticBar: Identifiable {
     let color: Color
 }
 
+private struct TimePeriod {
+    let label: String
+    let range: Range<Int>
+}
+
 private struct StatisticSectionHeader: View {
     let title: String
     let subtitle: String
@@ -151,7 +259,7 @@ private struct VerticalBarChart: View {
     let bars: [StatisticBar]
 
     private var maxValue: Int {
-        bars.map(\.value).max() ?? 1
+        max(bars.map(\.value).max() ?? 0, 1)
     }
 
     var body: some View {
@@ -164,7 +272,7 @@ private struct VerticalBarChart: View {
 
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
                                 .fill(bar.color.opacity(0.8))
-                                .frame(height: max(10, proxy.size.height * CGFloat(bar.value) / CGFloat(maxValue)))
+                                .frame(height: bar.value == 0 ? 0 : max(10, proxy.size.height * CGFloat(bar.value) / CGFloat(maxValue)))
                         }
                     }
                     .frame(height: 130)
@@ -188,6 +296,10 @@ private struct HorizontalBarRow: View {
     let bar: StatisticBar
     let maxValue: Int
 
+    private var resolvedMaxValue: Int {
+        max(maxValue, 1)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -208,7 +320,7 @@ private struct HorizontalBarRow: View {
 
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .fill(bar.color.opacity(0.75))
-                        .frame(width: proxy.size.width * CGFloat(bar.value) / CGFloat(maxValue))
+                        .frame(width: proxy.size.width * CGFloat(bar.value) / CGFloat(resolvedMaxValue))
                 }
             }
             .frame(height: 10)

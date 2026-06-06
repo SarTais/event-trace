@@ -1,32 +1,90 @@
 import SwiftUI
 
 struct HomeView: View {
-    private let todayEventCount = 7
-    private let activeDaysThisWeek = 4
+    @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
+    @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
 
-    private let lastEvent = HomeEvent(
-        title: "Headache",
-        category: "Health",
-        time: "14:32",
-        icon: "heart.text.square",
-        color: .red
-    )
+    private var categories: [EventCategory] {
+        EventCategoryStorage.decode(storedCategories)
+    }
 
-    private let categoryShortcuts = [
-        HomeCategoryShortcut(name: "Mood", icon: "face.smiling", color: .yellow, count: 3),
-        HomeCategoryShortcut(name: "Health", icon: "heart.text.square", color: .red, count: 2),
-        HomeCategoryShortcut(name: "Workout", icon: "figure.run", color: .green, count: 1),
-        HomeCategoryShortcut(name: "Learning", icon: "book", color: .indigo, count: 1)
-    ]
+    private var events: [LoggedEvent] {
+        LoggedEventStorage.decode(storedEvents)
+    }
 
-    private let activityLevels = [0, 1, 2, 0, 3, 1, 2, 4, 1, 0, 2, 3, 1, 2]
+    private var todayEvents: [LoggedEvent] {
+        events.filter { Calendar.current.isDateInToday($0.loggedAt) }
+    }
 
-    private let recentEvents = [
-        HomeEvent(title: "Headache", category: "Health", time: "14:32", icon: "heart.text.square", color: .red),
-        HomeEvent(title: "Focused", category: "Mood", time: "11:10", icon: "face.smiling", color: .yellow),
-        HomeEvent(title: "Walk", category: "Workout", time: "08:45", icon: "figure.walk", color: .green),
-        HomeEvent(title: "SwiftUI", category: "Learning", time: "Yesterday", icon: "book", color: .indigo)
-    ]
+    private var activeDaysThisWeek: Int {
+        let calendar = Calendar.current
+        guard let week = calendar.dateInterval(of: .weekOfYear, for: Date()) else {
+            return 0
+        }
+
+        let activeDays = events.reduce(into: Set<Date>()) { days, event in
+            guard week.contains(event.loggedAt) else {
+                return
+            }
+
+            days.insert(calendar.startOfDay(for: event.loggedAt))
+        }
+
+        return activeDays.count
+    }
+
+    private var lastEvent: HomeEvent? {
+        events.first.flatMap(homeEvent)
+    }
+
+    private var categoryShortcuts: [HomeCategoryShortcut] {
+        let todayCounts = Dictionary(grouping: todayEvents, by: \.categoryID)
+            .mapValues(\.count)
+
+        return categories.enumerated()
+            .sorted { first, second in
+                let firstCount = todayCounts[first.element.id, default: 0]
+                let secondCount = todayCounts[second.element.id, default: 0]
+
+                if firstCount == secondCount {
+                    return first.offset < second.offset
+                }
+
+                return firstCount > secondCount
+            }
+            .prefix(4)
+            .map { _, category in
+                HomeCategoryShortcut(
+                    id: category.id,
+                    name: category.name,
+                    icon: category.icon,
+                    color: category.tintColor,
+                    count: todayCounts[category.id, default: 0]
+                )
+            }
+    }
+
+    private var activityLevels: [Int] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        return (0..<14).reversed().map { dayOffset in
+            guard let day = calendar.date(byAdding: .day, value: -dayOffset, to: today),
+                  let nextDay = calendar.date(byAdding: .day, value: 1, to: day) else {
+                return 0
+            }
+
+            let count = events.filter { event in
+                event.loggedAt >= day && event.loggedAt < nextDay
+            }.count
+
+            return min(count, 4)
+        }
+    }
+
+    private var recentEvents: [HomeEvent] {
+        events.prefix(5).compactMap(homeEvent)
+    }
 
     var body: some View {
         NavigationStack {
@@ -54,15 +112,15 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(todayEventCount)")
+                Text("\(todayEvents.count)")
                     .font(.system(.largeTitle, design: .rounded, weight: .bold))
 
-                Text("events logged")
+                Text(todayEvents.count == 1 ? "event logged" : "events logged")
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
 
-            Text("\(activeDaysThisWeek) active days this week")
+            Text(activeDaysThisWeek == 1 ? "1 active day this week" : "\(activeDaysThisWeek) active days this week")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -75,7 +133,12 @@ struct HomeView: View {
     private var lastEventSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(title: "Last Event", systemImage: "clock")
-            EventRow(event: lastEvent, showsDivider: false)
+
+            if let lastEvent {
+                EventRow(event: lastEvent, showsDivider: false)
+            } else {
+                EmptyHomeState(message: "No events logged yet")
+            }
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground))
@@ -123,15 +186,46 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(title: "Recent", systemImage: "list.bullet")
 
-            VStack(spacing: 0) {
-                ForEach(Array(recentEvents.enumerated()), id: \.element.id) { index, event in
-                    EventRow(event: event, showsDivider: index < recentEvents.count - 1)
+            if recentEvents.isEmpty {
+                EmptyHomeState(message: "Logged events will appear here")
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(recentEvents.enumerated()), id: \.element.id) { index, event in
+                        EventRow(event: event, showsDivider: index < recentEvents.count - 1)
+                    }
                 }
             }
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func homeEvent(from event: LoggedEvent) -> HomeEvent? {
+        let category = categories.first { $0.id == event.categoryID }
+
+        return HomeEvent(
+            id: event.id,
+            title: event.title,
+            category: category?.name ?? "Deleted category",
+            time: relativeTime(for: event.loggedAt),
+            icon: category?.icon ?? EventCategory.fallbackIcon,
+            color: category?.tintColor ?? .gray
+        )
+    }
+
+    private func relativeTime(for date: Date) -> String {
+        let calendar = Calendar.current
+
+        if calendar.isDateInToday(date) {
+            return Self.timeFormatter.string(from: date)
+        }
+
+        if calendar.isDateInYesterday(date) {
+            return "Yesterday"
+        }
+
+        return Self.shortDateFormatter.string(from: date)
     }
 
     private func activityColor(for level: Int) -> Color {
@@ -152,10 +246,24 @@ struct HomeView: View {
     private func activityAccessibilityLabel(for level: Int) -> String {
         level == 0 ? "No events" : "Activity level \(level)"
     }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static let shortDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
 }
 
 private struct HomeEvent: Identifiable {
-    let id = UUID()
+    let id: UUID
     let title: String
     let category: String
     let time: String
@@ -164,7 +272,7 @@ private struct HomeEvent: Identifiable {
 }
 
 private struct HomeCategoryShortcut: Identifiable {
-    let id = UUID()
+    let id: UUID
     let name: String
     let icon: String
     let color: Color
@@ -179,6 +287,17 @@ private struct SectionHeader: View {
         Label(title, systemImage: systemImage)
             .font(.headline)
             .foregroundStyle(.primary)
+    }
+}
+
+private struct EmptyHomeState: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
     }
 }
 
@@ -239,7 +358,7 @@ private struct CategoryShortcutTile: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
 
-                Text("\(shortcut.count) today")
+                Text(shortcut.count == 1 ? "1 today" : "\(shortcut.count) today")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

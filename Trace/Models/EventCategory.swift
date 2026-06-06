@@ -59,11 +59,55 @@ struct EventPresetItem: Identifiable, Codable, Equatable {
     ]
 }
 
+struct LoggedEvent: Identifiable, Codable, Equatable {
+    let id: UUID
+    var categoryID: UUID
+    var presetID: UUID?
+    var title: String
+    var loggedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        categoryID: UUID,
+        presetID: UUID? = nil,
+        title: String,
+        loggedAt: Date = Date()
+    ) {
+        self.id = id
+        self.categoryID = categoryID
+        self.presetID = presetID
+        self.title = title
+        self.loggedAt = loggedAt
+    }
+}
+
 private enum EventCategoryID {
     static let mood = UUID(uuidString: "00000000-0000-0000-0000-000000000001") ?? UUID()
     static let health = UUID(uuidString: "00000000-0000-0000-0000-000000000002") ?? UUID()
     static let workout = UUID(uuidString: "00000000-0000-0000-0000-000000000003") ?? UUID()
     static let learning = UUID(uuidString: "00000000-0000-0000-0000-000000000004") ?? UUID()
+}
+
+enum LoggedEventStorage {
+    static let key = "loggedEvents"
+
+    static func decode(_ data: String) -> [LoggedEvent] {
+        guard let jsonData = data.data(using: .utf8),
+              let events = try? JSONDecoder().decode([LoggedEvent].self, from: jsonData) else {
+            return []
+        }
+
+        return events.sorted { $0.loggedAt > $1.loggedAt }
+    }
+
+    static func encode(_ events: [LoggedEvent]) -> String {
+        guard let jsonData = try? JSONEncoder().encode(events),
+              let data = String(data: jsonData, encoding: .utf8) else {
+            return ""
+        }
+
+        return data
+    }
 }
 
 enum EventCategoryStorage {
