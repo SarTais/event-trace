@@ -272,7 +272,7 @@ private struct VerticalBarChart: View {
 
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
                                 .fill(bar.color.opacity(0.8))
-                                .frame(height: bar.value == 0 ? 0 : max(10, proxy.size.height * CGFloat(bar.value) / CGFloat(maxValue)))
+                                .frame(height: barHeight(for: bar.value, availableHeight: proxy.size.height))
                         }
                     }
                     .frame(height: 130)
@@ -289,6 +289,16 @@ private struct VerticalBarChart: View {
                 .accessibilityLabel("\(bar.label), \(bar.value) events")
             }
         }
+    }
+
+    private func barHeight(for value: Int, availableHeight: CGFloat) -> CGFloat {
+        let sanitizedHeight = availableHeight.isFinite ? max(availableHeight, 0) : 0
+        guard value > 0, sanitizedHeight > 0 else {
+            return 0
+        }
+
+        let scaledHeight = sanitizedHeight * CGFloat(value) / CGFloat(maxValue)
+        return min(sanitizedHeight, max(10, scaledHeight))
     }
 }
 
@@ -320,12 +330,22 @@ private struct HorizontalBarRow: View {
 
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .fill(bar.color.opacity(0.75))
-                        .frame(width: proxy.size.width * CGFloat(bar.value) / CGFloat(resolvedMaxValue))
+                        .frame(width: barWidth(availableWidth: proxy.size.width))
                 }
             }
             .frame(height: 10)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private func barWidth(availableWidth: CGFloat) -> CGFloat {
+        let sanitizedWidth = availableWidth.isFinite ? max(availableWidth, 0) : 0
+        guard bar.value > 0, sanitizedWidth > 0 else {
+            return 0
+        }
+
+        let scaledWidth = sanitizedWidth * CGFloat(bar.value) / CGFloat(resolvedMaxValue)
+        return min(sanitizedWidth, max(scaledWidth, 0))
     }
 }
 

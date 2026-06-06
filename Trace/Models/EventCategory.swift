@@ -118,7 +118,6 @@ enum LoggedEventStorage {
 enum TraceSettingsStorage {
     static let hapticsEnabledKey = "settings.hapticsEnabled"
     static let confirmBeforeDeleteKey = "settings.confirmBeforeDelete"
-    static let defaultCategoryIDKey = "settings.defaultCategoryID"
 }
 
 enum EventCategoryStorage {

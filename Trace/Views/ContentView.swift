@@ -6,7 +6,6 @@ struct ContentView: View {
     @AppStorage(EventPresetStorage.key) private var storedPresets = ""
     @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
     @AppStorage(TraceSettingsStorage.hapticsEnabledKey) private var hapticsEnabled = true
-    @AppStorage(TraceSettingsStorage.defaultCategoryIDKey) private var defaultCategoryID = EventCategory.defaults.first?.id.uuidString ?? ""
     @State private var isShowingQuickLog = false
 
     private var categories: [EventCategory] {
@@ -32,7 +31,7 @@ struct ContentView: View {
 
                 Color.clear
                     .tabItem {
-                        Label("", systemImage: "")
+                        Text("")
                     }
 
                 StatisticsView()
@@ -67,7 +66,6 @@ struct ContentView: View {
                 categories: categories,
                 presets: presets,
                 storedEvents: $storedEvents,
-                defaultCategoryID: defaultCategoryID,
                 hapticsEnabled: hapticsEnabled
             )
                 .presentationDetents([.medium, .large])
@@ -94,17 +92,12 @@ private struct QuickLogCategorySheet: View {
         categories: [EventCategory],
         presets: [EventPresetItem],
         storedEvents: Binding<String>,
-        defaultCategoryID: String,
         hapticsEnabled: Bool
     ) {
         self.categories = categories
         self.presets = presets
         self._storedEvents = storedEvents
         self.hapticsEnabled = hapticsEnabled
-        self._selectedCategoryIndex = State(initialValue: Self.initialCategoryIndex(
-            categories: categories,
-            defaultCategoryID: defaultCategoryID
-        ))
     }
 
     var body: some View {
@@ -216,15 +209,6 @@ private struct QuickLogCategorySheet: View {
     private func triggerHapticFeedback() {
         guard hapticsEnabled else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    }
-
-    private static func initialCategoryIndex(categories: [EventCategory], defaultCategoryID: String) -> Int {
-        guard let defaultID = UUID(uuidString: defaultCategoryID),
-              let index = categories.firstIndex(where: { $0.id == defaultID }) else {
-            return 0
-        }
-
-        return index
     }
 }
 

@@ -7,7 +7,6 @@ struct SettingsView: View {
     @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
     @AppStorage(TraceSettingsStorage.hapticsEnabledKey) private var hapticsEnabled = true
     @AppStorage(TraceSettingsStorage.confirmBeforeDeleteKey) private var requireConfirmationBeforeDelete = true
-    @AppStorage(TraceSettingsStorage.defaultCategoryIDKey) private var defaultCategoryID = EventCategory.defaults.first?.id.uuidString ?? ""
     @State private var exportItem: TraceExportItem?
     @State private var exportErrorMessage = ""
     @State private var isShowingExportError = false
@@ -27,17 +26,13 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                loggingSection
+                interactionSection
                 categoriesSection
                 dataSection
                 privacySection
                 aboutSection
             }
             .navigationTitle("Settings")
-            .onAppear(perform: updateDefaultCategoryIfNeeded)
-            .onChange(of: storedCategories) { _, _ in
-                updateDefaultCategoryIfNeeded()
-            }
             .sheet(item: $exportItem) { item in
                 ActivityShareView(activityItems: [item.url])
             }
@@ -49,15 +44,8 @@ struct SettingsView: View {
         }
     }
 
-    private var loggingSection: some View {
-        Section("Logging") {
-            Picker("Default Category", selection: $defaultCategoryID) {
-                ForEach(categories) { category in
-                    Label(category.name, systemImage: category.icon)
-                        .tag(category.id.uuidString)
-                }
-            }
-
+    private var interactionSection: some View {
+        Section("Interaction") {
             Toggle("Subtle Haptics", isOn: $hapticsEnabled)
             Toggle("Confirm Before Delete", isOn: $requireConfirmationBeforeDelete)
         }
@@ -161,11 +149,6 @@ struct SettingsView: View {
                 color: .secondary
             )
         }
-    }
-
-    private func updateDefaultCategoryIfNeeded() {
-        guard !categories.contains(where: { $0.id.uuidString == defaultCategoryID }) else { return }
-        defaultCategoryID = categories.first?.id.uuidString ?? ""
     }
 
     private func exportExcel() {
