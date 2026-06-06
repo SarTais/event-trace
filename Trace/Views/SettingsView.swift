@@ -137,7 +137,7 @@ struct SettingsView: View {
         Section("About") {
             SettingsInfoRow(
                 title: "EventTrace",
-                detail: "Mock MVP build",
+                detail: "MVP build",
                 systemImage: "app.badge",
                 color: .blue
             )
