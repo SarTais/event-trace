@@ -4,6 +4,7 @@ import UIKit
 struct SettingsView: View {
     @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
     @AppStorage(EventPresetStorage.key) private var storedPresets = ""
+    @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
     @State private var hapticsEnabled = true
     @State private var showDailySummary = true
     @State private var requireConfirmationBeforeDelete = true
@@ -18,6 +19,10 @@ struct SettingsView: View {
 
     private var presets: [EventPresetItem] {
         EventPresetStorage.decode(storedPresets, categoriesData: storedCategories)
+    }
+
+    private var events: [LoggedEvent] {
+        LoggedEventStorage.decode(storedEvents)
     }
 
     var body: some View {
@@ -104,6 +109,17 @@ struct SettingsView: View {
                 action: exportPDF
             )
 
+            NavigationLink {
+                EventExportView()
+            } label: {
+                SettingsRowContent(
+                    title: "Export Event Report",
+                    detail: "\(events.count) logged",
+                    systemImage: "square.and.arrow.up",
+                    color: .blue
+                )
+            }
+
             SettingsNavigationRow(
                 title: "Storage",
                 detail: "Local only",
@@ -174,6 +190,260 @@ struct SettingsView: View {
             exportErrorMessage = error.localizedDescription
             isShowingExportError = true
         }
+    }
+}
+
+private struct EventExportView: View {
+    @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
+    @AppStorage(EventPresetStorage.key) private var storedPresets = ""
+    @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
+    @State private var selectedCategoryID: UUID?
+    @State private var range = EventExportRange.last30Days
+    @State private var includeAllPresets = true
+    @State private var selectedPresetIDs = Set<UUID>()
+    @State private var exportItem: TraceExportItem?
+    @State private var exportErrorMessage = ""
+    @State private var isShowingExportError = false
+
+    private var categories: [EventCategory] {
+        EventCategoryStorage.decode(storedCategories)
+    }
+
+    private var presets: [EventPresetItem] {
+        EventPresetStorage.decode(storedPresets, categoriesData: storedCategories)
+    }
+
+    private var events: [LoggedEvent] {
+        LoggedEventStorage.decode(storedEvents)
+    }
+
+    private var selectedCategory: EventCategory? {
+        guard let selectedCategoryID else { return categories.first }
+        return categories.first { $0.id == selectedCategoryID }
+    }
+
+    private var categoryPresets: [EventPresetItem] {
+        guard let selectedCategory else { return [] }
+        return presets.filter { $0.categoryID == selectedCategory.id }
+    }
+
+    private var includedPresets: [EventPresetItem] {
+        includeAllPresets ? categoryPresets : categoryPresets.filter { selectedPresetIDs.contains($0.id) }
+    }
+
+    private var filteredEvents: [LoggedEvent] {
+        guard let selectedCategory else { return [] }
+
+        return events.filter { event in
+            guard event.categoryID == selectedCategory.id else { return false }
+            guard range.includes(event.loggedAt) else { return false }
+
+            if includeAllPresets {
+                return true
+            }
+
+            guard let presetID = event.presetID else { return false }
+            return selectedPresetIDs.contains(presetID)
+        }
+    }
+
+    var body: some View {
+        List {
+            Section("Category") {
+                Picker("Category", selection: selectedCategoryIDBinding) {
+                    ForEach(categories) { category in
+                        Label(category.name, systemImage: category.icon)
+                            .tag(category.id)
+                    }
+                }
+            }
+
+            Section("Date Range") {
+                Picker("Range", selection: $range) {
+                    ForEach(EventExportRange.allCases) { range in
+                        Text(range.title).tag(range)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section {
+                Toggle("All Presets in Category", isOn: $includeAllPresets)
+                    .onChange(of: includeAllPresets) { _, newValue in
+                        if newValue {
+                            selectedPresetIDs.removeAll()
+                        }
+                    }
+
+                if !includeAllPresets {
+                    if categoryPresets.isEmpty {
+                        Text("This category has no presets yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(categoryPresets) { preset in
+                            Toggle(preset.name, isOn: presetBinding(for: preset))
+                        }
+                    }
+                }
+            } header: {
+                Text("Presets")
+            } footer: {
+                Text("Use this to export stomach pain without including headaches from the same Health category.")
+            }
+
+            Section {
+                SettingsInfoRow(
+                    title: "Matching Events",
+                    detail: "\(filteredEvents.count)",
+                    systemImage: "number",
+                    color: .secondary
+                )
+
+                SettingsActionRow(
+                    title: "Export CSV",
+                    detail: "Excel compatible",
+                    systemImage: "tablecells",
+                    color: .green,
+                    action: exportExcel
+                )
+                .disabled(!canExport)
+
+                SettingsActionRow(
+                    title: "Export PDF",
+                    detail: "Doctor summary",
+                    systemImage: "doc.richtext",
+                    color: .red,
+                    action: exportPDF
+                )
+                .disabled(!canExport)
+            } footer: {
+                Text("The report includes only logged events for the selected category, range, and presets.")
+            }
+        }
+        .navigationTitle("Event Report")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear(perform: selectInitialCategoryIfNeeded)
+        .onChange(of: storedCategories) { _, _ in
+            selectInitialCategoryIfNeeded()
+        }
+        .sheet(item: $exportItem) { item in
+            ActivityShareView(activityItems: [item.url])
+        }
+        .alert("Export Failed", isPresented: $isShowingExportError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(exportErrorMessage)
+        }
+    }
+
+    private var canExport: Bool {
+        selectedCategory != nil && (includeAllPresets || !selectedPresetIDs.isEmpty)
+    }
+
+    private var selectedCategoryIDBinding: Binding<UUID> {
+        Binding(
+            get: {
+                selectedCategory?.id ?? categories.first?.id ?? UUID()
+            },
+            set: { newValue in
+                selectedCategoryID = newValue
+                includeAllPresets = true
+                selectedPresetIDs.removeAll()
+            }
+        )
+    }
+
+    private func presetBinding(for preset: EventPresetItem) -> Binding<Bool> {
+        Binding(
+            get: {
+                selectedPresetIDs.contains(preset.id)
+            },
+            set: { isSelected in
+                if isSelected {
+                    selectedPresetIDs.insert(preset.id)
+                } else {
+                    selectedPresetIDs.remove(preset.id)
+                }
+            }
+        )
+    }
+
+    private func selectInitialCategoryIfNeeded() {
+        if selectedCategoryID == nil || selectedCategory == nil {
+            selectedCategoryID = categories.first?.id
+            includeAllPresets = true
+            selectedPresetIDs.removeAll()
+        }
+    }
+
+    private func exportExcel() {
+        exportFile { generator, category in
+            try generator.makeEventExcelFile(
+                category: category,
+                presets: includeAllPresets ? [] : includedPresets,
+                events: filteredEvents,
+                scopeTitle: range.title
+            )
+        }
+    }
+
+    private func exportPDF() {
+        exportFile { generator, category in
+            try generator.makeEventPDFFile(
+                category: category,
+                presets: includeAllPresets ? [] : includedPresets,
+                events: filteredEvents,
+                scopeTitle: range.title
+            )
+        }
+    }
+
+    private func exportFile(_ makeURL: (TraceExportGenerator, EventCategory) throws -> URL) {
+        guard let selectedCategory else { return }
+
+        do {
+            let url = try makeURL(TraceExportGenerator(), selectedCategory)
+            exportItem = TraceExportItem(url: url)
+        } catch {
+            exportErrorMessage = error.localizedDescription
+            isShowingExportError = true
+        }
+    }
+}
+
+private enum EventExportRange: String, CaseIterable, Identifiable {
+    case last7Days
+    case last30Days
+    case allTime
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .last7Days:
+            return "7 Days"
+        case .last30Days:
+            return "30 Days"
+        case .allTime:
+            return "All"
+        }
+    }
+
+    func includes(_ date: Date) -> Bool {
+        switch self {
+        case .last7Days:
+            return date >= startDate(daysBack: 6)
+        case .last30Days:
+            return date >= startDate(daysBack: 29)
+        case .allTime:
+            return true
+        }
+    }
+
+    private func startDate(daysBack: Int) -> Date {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        return calendar.date(byAdding: .day, value: -daysBack, to: today) ?? today
     }
 }
 

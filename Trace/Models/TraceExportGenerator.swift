@@ -2,6 +2,20 @@ import Foundation
 import UIKit
 
 struct TraceExportGenerator {
+    private let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
     func makeExcelFile(categories: [EventCategory], presets: [EventPresetItem]) throws -> URL {
         let csv = makeExcelCSV(categories: categories, presets: presets)
         let fileURL = exportURL(fileName: "EventTrace-Excel-Export.csv")
@@ -12,6 +26,30 @@ struct TraceExportGenerator {
     func makePDFFile(categories: [EventCategory], presets: [EventPresetItem]) throws -> URL {
         let fileURL = exportURL(fileName: "EventTrace-PDF-Summary.pdf")
         let data = makePDFData(categories: categories, presets: presets)
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    func makeEventExcelFile(
+        category: EventCategory,
+        presets: [EventPresetItem],
+        events: [LoggedEvent],
+        scopeTitle: String
+    ) throws -> URL {
+        let csv = makeEventCSV(category: category, presets: presets, events: events, scopeTitle: scopeTitle)
+        let fileURL = exportURL(fileName: "EventTrace-\(safeFileName(category.name))-Events.csv")
+        try csv.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
+    func makeEventPDFFile(
+        category: EventCategory,
+        presets: [EventPresetItem],
+        events: [LoggedEvent],
+        scopeTitle: String
+    ) throws -> URL {
+        let fileURL = exportURL(fileName: "EventTrace-\(safeFileName(category.name))-Events.pdf")
+        let data = makeEventPDFData(category: category, presets: presets, events: events, scopeTitle: scopeTitle)
         try data.write(to: fileURL, options: .atomic)
         return fileURL
     }
@@ -60,6 +98,58 @@ struct TraceExportGenerator {
         }
 
         let rows = [header] + categoryRows + presetRows
+        return "\u{feff}" + rows.map(csvLine).joined(separator: "\n")
+    }
+
+    private func makeEventCSV(
+        category: EventCategory,
+        presets: [EventPresetItem],
+        events: [LoggedEvent],
+        scopeTitle: String
+    ) -> String {
+        let presetNames = Dictionary(uniqueKeysWithValues: presets.map { ($0.id, $0.name) })
+        let groupedByPreset = Dictionary(grouping: events) { event in
+            event.presetID.flatMap { presetNames[$0] } ?? event.title
+        }
+        let groupedByDay = Dictionary(grouping: events) { event in
+            Calendar.current.startOfDay(for: event.loggedAt)
+        }
+
+        let summaryRows = [
+            ["Report", "\(category.name) logged events"],
+            ["Range", scopeTitle],
+            ["Total Events", String(events.count)],
+            ["Included Presets", includedPresetText(presets)],
+            []
+        ]
+
+        let presetRows = [["Preset", "Event Count"]] + groupedByPreset
+            .sorted { first, second in
+                if first.value.count == second.value.count {
+                    return first.key < second.key
+                }
+
+                return first.value.count > second.value.count
+            }
+            .map { [$0.key, String($0.value.count)] }
+
+        let dailyRows = [["Date", "Event Count"]] + groupedByDay
+            .sorted { $0.key < $1.key }
+            .map { [dayFormatter.string(from: $0.key), String($0.value.count)] }
+
+        let eventRows = [["Logged At", "Category", "Preset", "Title", "Event ID"]] + events
+            .sorted { $0.loggedAt < $1.loggedAt }
+            .map { event in
+                [
+                    dateFormatter.string(from: event.loggedAt),
+                    category.name,
+                    event.presetID.flatMap { presetNames[$0] } ?? "",
+                    event.title,
+                    event.id.uuidString
+                ]
+            }
+
+        let rows = summaryRows + presetRows + [[]] + dailyRows + [[]] + eventRows
         return "\u{feff}" + rows.map(csvLine).joined(separator: "\n")
     }
 
@@ -164,7 +254,184 @@ struct TraceExportGenerator {
         }
     }
 
+    private func makeEventPDFData(
+        category: EventCategory,
+        presets: [EventPresetItem],
+        events: [LoggedEvent],
+        scopeTitle: String
+    ) -> Data {
+        let reportTitle = "\(category.name) Event Report"
+        let pageBounds = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let renderer = UIGraphicsPDFRenderer(bounds: pageBounds)
+        let margin: CGFloat = 44
+        let contentWidth = pageBounds.width - margin * 2
+        let titleFont = UIFont.preferredFont(forTextStyle: .title1)
+        let headingFont = UIFont.preferredFont(forTextStyle: .headline)
+        let bodyFont = UIFont.preferredFont(forTextStyle: .body)
+        let captionFont = UIFont.preferredFont(forTextStyle: .caption1)
+        let smallFont = UIFont.systemFont(ofSize: 9)
+
+        return renderer.pdfData { context in
+            var y = beginPage(
+                title: reportTitle,
+                context: context,
+                pageBounds: pageBounds,
+                margin: margin,
+                contentWidth: contentWidth,
+                titleFont: titleFont,
+                captionFont: captionFont
+            )
+
+            y = drawSectionTitle("Summary", y: y, margin: margin, contentWidth: contentWidth, headingFont: headingFont)
+            y = drawTableHeader(["Range", "Events", "Presets"], y: y, margin: margin, contentWidth: contentWidth, font: captionFont)
+            y = drawTableRow(
+                [scopeTitle, String(events.count), includedPresetText(presets)],
+                widths: [0.34, 0.16, 0.50],
+                y: y,
+                margin: margin,
+                contentWidth: contentWidth,
+                font: bodyFont,
+                smallFont: smallFont
+            )
+
+            y += 18
+            y = drawSectionTitle("Preset Frequency", y: y, margin: margin, contentWidth: contentWidth, headingFont: headingFont)
+            y = drawTableHeader(["Preset", "Events"], y: y, margin: margin, contentWidth: contentWidth, font: captionFont)
+
+            let presetNames = Dictionary(uniqueKeysWithValues: presets.map { ($0.id, $0.name) })
+            let groupedByPreset = Dictionary(grouping: events) { event in
+                event.presetID.flatMap { presetNames[$0] } ?? event.title
+            }
+            let presetSummaries = groupedByPreset.sorted { first, second in
+                if first.value.count == second.value.count {
+                    return first.key < second.key
+                }
+
+                return first.value.count > second.value.count
+            }
+
+            if presetSummaries.isEmpty {
+                drawText("No matching events yet.", in: CGRect(x: margin, y: y, width: contentWidth, height: 24), font: bodyFont, color: .darkGray)
+                y += 30
+            } else {
+                for summary in presetSummaries {
+                    y = beginNewPageIfNeeded(
+                        title: reportTitle,
+                        y: y,
+                        rowHeight: 34,
+                        pageBounds: pageBounds,
+                        margin: margin,
+                        context: context,
+                        contentWidth: contentWidth,
+                        titleFont: titleFont,
+                        captionFont: captionFont
+                    )
+                    y = drawTableRow(
+                        [summary.key, String(summary.value.count)],
+                        widths: [0.78, 0.22],
+                        y: y,
+                        margin: margin,
+                        contentWidth: contentWidth,
+                        font: bodyFont,
+                        smallFont: smallFont
+                    )
+                }
+            }
+
+            y += 18
+            y = beginNewPageIfNeeded(
+                title: reportTitle,
+                y: y,
+                rowHeight: 70,
+                pageBounds: pageBounds,
+                margin: margin,
+                context: context,
+                contentWidth: contentWidth,
+                titleFont: titleFont,
+                captionFont: captionFont
+            )
+            y = drawSectionTitle("Daily Frequency", y: y, margin: margin, contentWidth: contentWidth, headingFont: headingFont)
+            y = drawTableHeader(["Date", "Events"], y: y, margin: margin, contentWidth: contentWidth, font: captionFont)
+
+            let groupedByDay = Dictionary(grouping: events) { event in
+                Calendar.current.startOfDay(for: event.loggedAt)
+            }
+
+            if groupedByDay.isEmpty {
+                drawText("No matching days yet.", in: CGRect(x: margin, y: y, width: contentWidth, height: 24), font: bodyFont, color: .darkGray)
+                y += 30
+            } else {
+                for daySummary in groupedByDay.sorted(by: { $0.key < $1.key }) {
+                    y = beginNewPageIfNeeded(
+                        title: reportTitle,
+                        y: y,
+                        rowHeight: 34,
+                        pageBounds: pageBounds,
+                        margin: margin,
+                        context: context,
+                        contentWidth: contentWidth,
+                        titleFont: titleFont,
+                        captionFont: captionFont
+                    )
+                    y = drawTableRow(
+                        [dayFormatter.string(from: daySummary.key), String(daySummary.value.count)],
+                        widths: [0.78, 0.22],
+                        y: y,
+                        margin: margin,
+                        contentWidth: contentWidth,
+                        font: bodyFont,
+                        smallFont: smallFont
+                    )
+                }
+            }
+
+            y += 18
+            y = beginNewPageIfNeeded(
+                title: reportTitle,
+                y: y,
+                rowHeight: 70,
+                pageBounds: pageBounds,
+                margin: margin,
+                context: context,
+                contentWidth: contentWidth,
+                titleFont: titleFont,
+                captionFont: captionFont
+            )
+            y = drawSectionTitle("Event Log", y: y, margin: margin, contentWidth: contentWidth, headingFont: headingFont)
+            y = drawTableHeader(["Logged At", "Preset", "Title"], y: y, margin: margin, contentWidth: contentWidth, font: captionFont)
+
+            for event in events.sorted(by: { $0.loggedAt < $1.loggedAt }) {
+                y = beginNewPageIfNeeded(
+                    title: reportTitle,
+                    y: y,
+                    rowHeight: 34,
+                    pageBounds: pageBounds,
+                    margin: margin,
+                    context: context,
+                    contentWidth: contentWidth,
+                    titleFont: titleFont,
+                    captionFont: captionFont
+                )
+
+                y = drawTableRow(
+                    [
+                        dateFormatter.string(from: event.loggedAt),
+                        event.presetID.flatMap { presetNames[$0] } ?? "",
+                        event.title
+                    ],
+                    widths: [0.34, 0.24, 0.42],
+                    y: y,
+                    margin: margin,
+                    contentWidth: contentWidth,
+                    font: bodyFont,
+                    smallFont: smallFont
+                )
+            }
+        }
+    }
+
     private func beginPage(
+        title: String = "EventTrace PDF Summary",
         context: UIGraphicsPDFRendererContext,
         pageBounds: CGRect,
         margin: CGFloat,
@@ -177,7 +444,7 @@ struct TraceExportGenerator {
         UIBezierPath(rect: pageBounds).fill()
 
         var y = margin
-        drawText("EventTrace PDF Summary", in: CGRect(x: margin, y: y, width: contentWidth, height: 34), font: titleFont, color: .black)
+        drawText(title, in: CGRect(x: margin, y: y, width: contentWidth, height: 34), font: titleFont, color: .black)
         y += 40
 
         let generatedDate = Date().formatted(date: .abbreviated, time: .shortened)
@@ -186,6 +453,7 @@ struct TraceExportGenerator {
     }
 
     private func beginNewPageIfNeeded(
+        title: String = "EventTrace PDF Summary",
         y: CGFloat,
         rowHeight: CGFloat,
         pageBounds: CGRect,
@@ -197,6 +465,7 @@ struct TraceExportGenerator {
     ) -> CGFloat {
         guard y + rowHeight > pageBounds.maxY - margin else { return y }
         return beginPage(
+            title: title,
             context: context,
             pageBounds: pageBounds,
             margin: margin,
@@ -254,5 +523,15 @@ struct TraceExportGenerator {
             .paragraphStyle: paragraphStyle
         ]
         text.draw(in: rect, withAttributes: attributes)
+    }
+
+    private func includedPresetText(_ presets: [EventPresetItem]) -> String {
+        presets.isEmpty ? "All presets in category" : presets.map(\.name).joined(separator: ", ")
+    }
+
+    private func safeFileName(_ value: String) -> String {
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let pieces = value.components(separatedBy: allowedCharacters.inverted).filter { !$0.isEmpty }
+        return pieces.isEmpty ? "Category" : pieces.joined(separator: "-")
     }
 }
