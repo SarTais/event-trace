@@ -528,6 +528,9 @@ private struct PresetCategoryEditorView: View {
     @AppStorage(EventPresetStorage.key) private var storedPresets = ""
     let categoryID: UUID
     @State private var newPresetName = ""
+    @State private var editingPreset: EventPresetItem?
+    @State private var presetNameDraft = ""
+    @State private var isShowingPresetEditor = false
     @FocusState private var isAddingPreset: Bool
 
     private var categories: [EventCategory] {
@@ -556,13 +559,42 @@ private struct PresetCategoryEditorView: View {
         newPresetName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var trimmedPresetNameDraft: String {
+        presetNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSavePresetName: Bool {
+        guard let editingPreset else { return false }
+
+        return !trimmedPresetNameDraft.isEmpty
+            && !categoryPresets.contains {
+                $0.id != editingPreset.id
+                    && $0.name.localizedCaseInsensitiveCompare(trimmedPresetNameDraft) == .orderedSame
+            }
+    }
+
     var body: some View {
         List {
             if let category {
                 Section {
                     ForEach(categoryPresets) { preset in
-                        Text(preset.name)
-                            .font(.body)
+                        HStack(spacing: 12) {
+                            Text(preset.name)
+                                .font(.body)
+
+                            Spacer()
+
+                            Button {
+                                startEditing(preset)
+                            } label: {
+                                Image(systemName: "pencil")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 36, height: 36)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Edit \(preset.name)")
+                        }
                     }
                     .onDelete(perform: deletePresets)
                     .onMove(perform: movePresets)
@@ -612,6 +644,33 @@ private struct PresetCategoryEditorView: View {
                 }
             }
         }
+        .sheet(isPresented: $isShowingPresetEditor) {
+            NavigationStack {
+                Form {
+                    Section("Preset Label") {
+                        TextField("Preset name", text: $presetNameDraft)
+                            .submitLabel(.done)
+                            .onSubmit(savePresetName)
+                    }
+                }
+                .navigationTitle("Edit Preset")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            isShowingPresetEditor = false
+                        }
+                    }
+
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            savePresetName()
+                        }
+                        .disabled(!canSavePresetName)
+                    }
+                }
+            }
+        }
     }
 
     private func addPreset() {
@@ -621,6 +680,23 @@ private struct PresetCategoryEditorView: View {
         storedPresets = EventPresetStorage.encode(updatedPresets)
         newPresetName = ""
         isAddingPreset = false
+    }
+
+    private func startEditing(_ preset: EventPresetItem) {
+        editingPreset = preset
+        presetNameDraft = preset.name
+        isShowingPresetEditor = true
+    }
+
+    private func savePresetName() {
+        guard canSavePresetName, let editingPreset else { return }
+
+        var updatedPresets = presets
+        guard let index = updatedPresets.firstIndex(where: { $0.id == editingPreset.id }) else { return }
+
+        updatedPresets[index].name = trimmedPresetNameDraft
+        storedPresets = EventPresetStorage.encode(updatedPresets)
+        isShowingPresetEditor = false
     }
 
     private func deletePresets(at offsets: IndexSet) {
