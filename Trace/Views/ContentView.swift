@@ -58,6 +58,7 @@ struct ContentView: View {
             .accessibilityLabel("Log event")
             .offset(y: -10)
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .sheet(isPresented: $isShowingQuickLog) {
             QuickLogCategorySheet(categories: categories, presets: presets)
                 .presentationDetents([.height(360), .medium])
