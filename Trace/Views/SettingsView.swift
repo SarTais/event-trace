@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
@@ -7,6 +8,9 @@ struct SettingsView: View {
     @State private var showDailySummary = true
     @State private var requireConfirmationBeforeDelete = true
     @State private var defaultCategory = "Health"
+    @State private var exportItem: TraceExportItem?
+    @State private var exportErrorMessage = ""
+    @State private var isShowingExportError = false
 
     private var categories: [EventCategory] {
         EventCategoryStorage.decode(storedCategories)
@@ -29,6 +33,14 @@ struct SettingsView: View {
             .onAppear(perform: updateDefaultCategoryIfNeeded)
             .onChange(of: storedCategories) { _, _ in
                 updateDefaultCategoryIfNeeded()
+            }
+            .sheet(item: $exportItem) { item in
+                ActivityShareView(activityItems: [item.url])
+            }
+            .alert("Export Failed", isPresented: $isShowingExportError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(exportErrorMessage)
             }
         }
     }
@@ -77,10 +89,19 @@ struct SettingsView: View {
     private var dataSection: some View {
         Section("Data") {
             SettingsActionRow(
-                title: "Export CSV",
-                detail: "Create a local backup",
-                systemImage: "square.and.arrow.up",
-                color: .green
+                title: "Export Categories CSV",
+                detail: "Categories and presets",
+                systemImage: "tablecells",
+                color: .green,
+                action: exportExcel
+            )
+
+            SettingsActionRow(
+                title: "Export Categories PDF",
+                detail: "Categories and presets",
+                systemImage: "doc.richtext",
+                color: .red,
+                action: exportPDF
             )
 
             SettingsNavigationRow(
@@ -131,6 +152,44 @@ struct SettingsView: View {
     private func updateDefaultCategoryIfNeeded() {
         guard !categories.contains(where: { $0.name == defaultCategory }) else { return }
         defaultCategory = categories.first?.name ?? ""
+    }
+
+    private func exportExcel() {
+        exportFile { generator in
+            try generator.makeExcelFile(categories: categories, presets: presets)
+        }
+    }
+
+    private func exportPDF() {
+        exportFile { generator in
+            try generator.makePDFFile(categories: categories, presets: presets)
+        }
+    }
+
+    private func exportFile(_ makeURL: (TraceExportGenerator) throws -> URL) {
+        do {
+            let url = try makeURL(TraceExportGenerator())
+            exportItem = TraceExportItem(url: url)
+        } catch {
+            exportErrorMessage = error.localizedDescription
+            isShowingExportError = true
+        }
+    }
+}
+
+private struct TraceExportItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct ActivityShareView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
     }
 }
 
@@ -317,10 +376,10 @@ private struct SettingsActionRow: View {
     let detail: String
     let systemImage: String
     let color: Color
+    let action: () -> Void
 
     var body: some View {
-        Button {
-        } label: {
+        Button(action: action) {
             SettingsRowContent(title: title, detail: detail, systemImage: systemImage, color: color)
         }
         .buttonStyle(.plain)
