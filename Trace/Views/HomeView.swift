@@ -139,10 +139,14 @@ struct HomeView: View {
                 EventRow(
                     event: lastEvent,
                     showsDivider: false,
-                    requiresDeleteConfirmation: requireConfirmationBeforeDelete
-                ) {
-                    removeEvent(lastEvent)
-                }
+                    requiresDeleteConfirmation: requireConfirmationBeforeDelete,
+                    onUpdateNote: { note in
+                        updateNote(note, for: lastEvent)
+                    },
+                    onDelete: {
+                        removeEvent(lastEvent)
+                    }
+                )
             } else {
                 EmptyHomeState(message: "No events logged yet")
             }
@@ -201,10 +205,14 @@ struct HomeView: View {
                         EventRow(
                             event: event,
                             showsDivider: index < recentEvents.count - 1,
-                            requiresDeleteConfirmation: requireConfirmationBeforeDelete
-                        ) {
-                            removeEvent(event)
-                        }
+                            requiresDeleteConfirmation: requireConfirmationBeforeDelete,
+                            onUpdateNote: { note in
+                                updateNote(note, for: event)
+                            },
+                            onDelete: {
+                                removeEvent(event)
+                            }
+                        )
                     }
                 }
             }
@@ -218,6 +226,10 @@ struct HomeView: View {
         storedEvents = LoggedEventStorage.removing(eventID: event.id, from: storedEvents)
     }
 
+    private func updateNote(_ note: String?, for event: HomeEvent) {
+        storedEvents = LoggedEventStorage.updatingNote(note, eventID: event.id, in: storedEvents)
+    }
+
     private func homeEvent(from event: LoggedEvent) -> HomeEvent? {
         let category = categories.first { $0.id == event.categoryID }
 
@@ -226,6 +238,7 @@ struct HomeView: View {
             title: event.title,
             category: category?.name ?? "Deleted category",
             time: relativeTime(for: event.loggedAt),
+            note: event.note,
             icon: category?.icon ?? EventCategory.fallbackIcon,
             color: category?.tintColor ?? .gray
         )
@@ -284,8 +297,13 @@ private struct HomeEvent: Identifiable {
     let title: String
     let category: String
     let time: String
+    let note: String?
     let icon: String
     let color: Color
+
+    var hasNote: Bool {
+        note?.isEmpty == false
+    }
 }
 
 private struct HomeCategoryShortcut: Identifiable {
@@ -322,55 +340,112 @@ private struct EventRow: View {
     let event: HomeEvent
     let showsDivider: Bool
     let requiresDeleteConfirmation: Bool
+    let onUpdateNote: (String?) -> Void
     let onDelete: () -> Void
     @State private var isShowingDeleteConfirmation = false
+    @State private var isShowingNote = false
+    @State private var isShowingNoteEditor = false
+    @State private var draftNote = ""
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: event.icon)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(event.color)
-                    .frame(width: 38, height: 38)
-                    .background(event.color.opacity(0.14))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(event.title)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    Image(systemName: event.icon)
                         .font(.body.weight(.semibold))
+                        .foregroundStyle(event.color)
+                        .frame(width: 38, height: 38)
+                        .background(event.color.opacity(0.14))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-                    Text(event.category)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(event.title)
+                            .font(.body.weight(.semibold))
+
+                        Text(event.category)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    if event.hasNote {
+                        Image(systemName: "note.text")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(event.color)
+                            .accessibilityLabel("Has note")
+                    }
+
+                    Text(event.time)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                }
 
-                Spacer()
-
-                Text(event.time)
-                    .font(.subheadline)
+                    Button(role: .destructive) {
+                        delete()
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(width: 36, height: 36)
+                    }
+                    .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
-
-                Button(role: .destructive) {
-                    delete()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(width: 36, height: 36)
+                    .accessibilityLabel("Remove \(event.title)")
+                    .confirmationDialog(
+                        "Remove logged event?",
+                        isPresented: $isShowingDeleteConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Remove Event", role: .destructive, action: onDelete)
+                    } message: {
+                        Text("This removes \"\(event.title)\" from your logged events.")
+                    }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Remove \(event.title)")
-                .confirmationDialog(
-                    "Remove logged event?",
-                    isPresented: $isShowingDeleteConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("Remove Event", role: .destructive, action: onDelete)
-                } message: {
-                    Text("This removes \"\(event.title)\" from your logged events.")
+                .frame(minHeight: 52)
+
+                if isShowingNote, let note = event.note {
+                    Text(note)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 50)
+                        .padding(.trailing, 48)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .frame(minHeight: 52)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard event.hasNote else { return }
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isShowingNote.toggle()
+                }
+            }
+            .accessibilityHint(event.hasNote ? "Double tap to show or hide note" : "")
+            .contextMenu {
+                Button {
+                    draftNote = event.note ?? ""
+                    isShowingNoteEditor = true
+                } label: {
+                    Label(event.hasNote ? "Edit Note" : "Add Note", systemImage: "note.text")
+                }
+
+                if event.hasNote {
+                    Button(role: .destructive) {
+                        onUpdateNote(nil)
+                        isShowingNote = false
+                    } label: {
+                        Label("Remove Note", systemImage: "minus.circle")
+                    }
+                }
+            }
+            .sheet(isPresented: $isShowingNoteEditor) {
+                EventNoteEditor(eventTitle: event.title, noteText: $draftNote) {
+                    isShowingNoteEditor = false
+                } onSave: {
+                    let normalizedNote = LoggedEvent.normalizedNote(draftNote)
+                    onUpdateNote(normalizedNote)
+                    isShowingNote = normalizedNote != nil
+                    isShowingNoteEditor = false
+                }
+            }
 
             if showsDivider {
                 Divider()

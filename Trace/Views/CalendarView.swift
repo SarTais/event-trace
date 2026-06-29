@@ -263,11 +263,16 @@ struct CalendarView: View {
                             title: event.title,
                             category: categoryName(for: event),
                             time: Self.timeFormatter.string(from: event.loggedAt),
+                            note: event.note,
                             color: categoryColor(for: event),
-                            requiresDeleteConfirmation: requireConfirmationBeforeDelete
-                        ) {
-                            removeEvent(event)
-                        }
+                            requiresDeleteConfirmation: requireConfirmationBeforeDelete,
+                            onUpdateNote: { note in
+                                updateNote(note, for: event)
+                            },
+                            onDelete: {
+                                removeEvent(event)
+                            }
+                        )
 
                         if index < selectedDayEvents.count - 1 {
                             Divider().padding(.leading, 12)
@@ -330,6 +335,10 @@ struct CalendarView: View {
 
     private func removeEvent(_ event: LoggedEvent) {
         storedEvents = LoggedEventStorage.removing(eventID: event.id, from: storedEvents)
+    }
+
+    private func updateNote(_ note: String?, for event: LoggedEvent) {
+        storedEvents = LoggedEventStorage.updatingNote(note, eventID: event.id, in: storedEvents)
     }
 
     private func category(for event: LoggedEvent) -> EventCategory? {
@@ -416,53 +425,115 @@ private struct CalendarEventRow: View {
     let title: String
     let category: String
     let time: String
+    let note: String?
     let color: Color
     let requiresDeleteConfirmation: Bool
+    let onUpdateNote: (String?) -> Void
     let onDelete: () -> Void
     @State private var isShowingDeleteConfirmation = false
+    @State private var isShowingNote = false
+    @State private var isShowingNoteEditor = false
+    @State private var draftNote = ""
+
+    private var hasNote: Bool {
+        note?.isEmpty == false
+    }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(color)
-                .frame(width: 10, height: 10)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 10, height: 10)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.body.weight(.semibold))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.body.weight(.semibold))
 
-                Text(category)
+                    Text(category)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if hasNote {
+                    Image(systemName: "note.text")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(color)
+                        .accessibilityLabel("Has note")
+                }
+
+                Text(time)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-            }
 
-            Spacer()
-
-            Text(time)
-                .font(.subheadline)
+                Button(role: .destructive) {
+                    delete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-
-            Button(role: .destructive) {
-                delete()
-            } label: {
-                Image(systemName: "trash")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(width: 36, height: 36)
+                .accessibilityLabel("Remove \(title)")
+                .confirmationDialog(
+                    "Remove logged event?",
+                    isPresented: $isShowingDeleteConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Remove Event", role: .destructive, action: onDelete)
+                } message: {
+                    Text("This removes \"\(title)\" from your logged events.")
+                }
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("Remove \(title)")
-            .confirmationDialog(
-                "Remove logged event?",
-                isPresented: $isShowingDeleteConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Remove Event", role: .destructive, action: onDelete)
-            } message: {
-                Text("This removes \"\(title)\" from your logged events.")
+            .frame(minHeight: 50)
+
+            if isShowingNote, let note {
+                Text(note)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 22)
+                    .padding(.trailing, 48)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .frame(minHeight: 50)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard hasNote else { return }
+            withAnimation(.easeInOut(duration: 0.18)) {
+                isShowingNote.toggle()
+            }
+        }
+        .accessibilityHint(hasNote ? "Double tap to show or hide note" : "")
+        .contextMenu {
+            Button {
+                draftNote = note ?? ""
+                isShowingNoteEditor = true
+            } label: {
+                Label(hasNote ? "Edit Note" : "Add Note", systemImage: "note.text")
+            }
+
+            if hasNote {
+                Button(role: .destructive) {
+                    onUpdateNote(nil)
+                    isShowingNote = false
+                } label: {
+                    Label("Remove Note", systemImage: "minus.circle")
+                }
+            }
+        }
+        .sheet(isPresented: $isShowingNoteEditor) {
+            EventNoteEditor(eventTitle: title, noteText: $draftNote) {
+                isShowingNoteEditor = false
+            } onSave: {
+                let normalizedNote = LoggedEvent.normalizedNote(draftNote)
+                onUpdateNote(normalizedNote)
+                isShowingNote = normalizedNote != nil
+                isShowingNoteEditor = false
+            }
+        }
     }
 
     private func delete() {

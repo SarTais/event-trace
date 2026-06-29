@@ -65,19 +65,31 @@ struct LoggedEvent: Identifiable, Codable, Equatable {
     var presetID: UUID?
     var title: String
     var loggedAt: Date
+    var note: String?
 
     init(
         id: UUID = UUID(),
         categoryID: UUID,
         presetID: UUID? = nil,
         title: String,
-        loggedAt: Date = Date()
+        loggedAt: Date = Date(),
+        note: String? = nil
     ) {
         self.id = id
         self.categoryID = categoryID
         self.presetID = presetID
         self.title = title
         self.loggedAt = loggedAt
+        self.note = Self.normalizedNote(note)
+    }
+
+    var hasNote: Bool {
+        note?.isEmpty == false
+    }
+
+    static func normalizedNote(_ note: String?) -> String? {
+        let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedNote.isEmpty ? nil : trimmedNote
     }
 }
 
@@ -111,6 +123,16 @@ enum LoggedEventStorage {
 
     static func removing(eventID: UUID, from data: String) -> String {
         let events = decode(data).filter { $0.id != eventID }
+        return encode(events)
+    }
+
+    static func updatingNote(_ note: String?, eventID: UUID, in data: String) -> String {
+        var events = decode(data)
+        guard let index = events.firstIndex(where: { $0.id == eventID }) else {
+            return data
+        }
+
+        events[index].note = LoggedEvent.normalizedNote(note)
         return encode(events)
     }
 }

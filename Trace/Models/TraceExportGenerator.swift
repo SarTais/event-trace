@@ -143,7 +143,7 @@ struct TraceExportGenerator {
             .sorted { $0.key < $1.key }
             .map { [dayFormatter.string(from: $0.key), String($0.value.count)] }
 
-        let eventRows = [["Logged At", "Category", "Preset", "Title", "Event ID"]] + events
+        let eventRows = [["Logged At", "Category", "Preset", "Title", "Note", "Event ID"]] + events
             .sorted { $0.loggedAt < $1.loggedAt }
             .map { event in
                 [
@@ -151,6 +151,7 @@ struct TraceExportGenerator {
                     category.name,
                     event.presetID.flatMap { presetNames[$0] } ?? "",
                     event.title,
+                    event.note ?? "",
                     event.id.uuidString
                 ]
             }
@@ -400,6 +401,9 @@ struct TraceExportGenerator {
             y = drawSectionTitle("Event Log", y: y, margin: margin, contentWidth: contentWidth, headingFont: headingFont)
 
             for event in events.sorted(by: { $0.loggedAt < $1.loggedAt }) {
+                let presetText = event.presetID.flatMap { presetNames[$0] } ?? "No preset"
+                let noteText = event.note.map { "  |  Note: \($0)" } ?? ""
+
                 y = beginNewPageIfNeeded(
                     title: reportTitle,
                     y: y,
@@ -413,7 +417,7 @@ struct TraceExportGenerator {
                 )
                 y = drawTimelineRow(
                     title: event.title,
-                    subtitle: "\(dateFormatter.string(from: event.loggedAt))  |  \(event.presetID.flatMap { presetNames[$0] } ?? "No preset")",
+                    subtitle: "\(dateFormatter.string(from: event.loggedAt))  |  \(presetText)\(noteText)",
                     y: y,
                     margin: margin,
                     contentWidth: contentWidth,
