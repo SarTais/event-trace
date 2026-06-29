@@ -2,15 +2,38 @@ import SwiftUI
 
 struct CalendarView: View {
     @AppStorage(EventCategoryStorage.key) private var storedCategories = ""
+    @AppStorage(EventPresetStorage.key) private var storedPresets = ""
     @AppStorage(LoggedEventStorage.key) private var storedEvents = ""
     @AppStorage(TraceSettingsStorage.confirmBeforeDeleteKey) private var requireConfirmationBeforeDelete = true
     @State private var selectedCategoryID: UUID?
+    @State private var selectedPresetID: UUID?
     @State private var selectedDate = Date()
 
     private let weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
     private var categories: [EventCategory] {
         EventCategoryStorage.decode(storedCategories)
+    }
+
+    private var presets: [EventPresetItem] {
+        EventPresetStorage.decode(storedPresets, categoriesData: storedCategories)
+    }
+
+    private var selectedCategoryPresets: [EventPresetItem] {
+        guard let selectedCategoryID else {
+            return []
+        }
+
+        return presets.filter { $0.categoryID == selectedCategoryID }
+    }
+
+    private var effectiveSelectedPresetID: UUID? {
+        guard let selectedPresetID,
+              selectedCategoryPresets.contains(where: { $0.id == selectedPresetID }) else {
+            return nil
+        }
+
+        return selectedPresetID
     }
 
     private var events: [LoggedEvent] {
@@ -22,7 +45,13 @@ struct CalendarView: View {
             return events
         }
 
-        return events.filter { $0.categoryID == selectedCategoryID }
+        let categoryEvents = events.filter { $0.categoryID == selectedCategoryID }
+
+        guard let effectiveSelectedPresetID else {
+            return categoryEvents
+        }
+
+        return categoryEvents.filter { $0.presetID == effectiveSelectedPresetID }
     }
 
     private var displayedMonth: DateInterval? {
@@ -106,7 +135,7 @@ struct CalendarView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    categoryFilter
+                    categoryFilters
                     monthOverview
                     detailSection
                 }
@@ -119,6 +148,16 @@ struct CalendarView: View {
         }
     }
 
+    private var categoryFilters: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            categoryFilter
+
+            if selectedCategoryID != nil, !selectedCategoryPresets.isEmpty {
+                presetFilter
+            }
+        }
+    }
+
     private var categoryFilter: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -126,6 +165,19 @@ struct CalendarView: View {
 
                 ForEach(categories) { category in
                     categoryFilterButton(title: category.name, categoryID: category.id)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var presetFilter: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                presetFilterButton(title: "All presets", presetID: nil)
+
+                ForEach(selectedCategoryPresets) { preset in
+                    presetFilterButton(title: preset.name, presetID: preset.id)
                 }
             }
             .padding(.vertical, 2)
@@ -238,6 +290,7 @@ struct CalendarView: View {
     private func categoryFilterButton(title: String, categoryID: UUID?) -> some View {
         Button {
             selectedCategoryID = categoryID
+            selectedPresetID = nil
         } label: {
             Text(title)
                 .font(.subheadline.weight(.semibold))
@@ -249,6 +302,22 @@ struct CalendarView: View {
         .background(selectedCategoryID == categoryID ? Color.blue : Color(.secondarySystemGroupedBackground))
         .clipShape(Capsule())
         .accessibilityAddTraits(selectedCategoryID == categoryID ? .isSelected : [])
+    }
+
+    private func presetFilterButton(title: String, presetID: UUID?) -> some View {
+        Button {
+            selectedPresetID = presetID
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(effectiveSelectedPresetID == presetID ? .white : .primary)
+        .background(effectiveSelectedPresetID == presetID ? Color.blue.opacity(0.85) : Color(.secondarySystemGroupedBackground))
+        .clipShape(Capsule())
+        .accessibilityAddTraits(effectiveSelectedPresetID == presetID ? .isSelected : [])
     }
 
     private func moveMonth(by value: Int) {
