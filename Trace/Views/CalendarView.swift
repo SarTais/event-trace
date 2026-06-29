@@ -25,6 +25,10 @@ struct CalendarView: View {
         return events.filter { $0.categoryID == selectedCategoryID }
     }
 
+    private var displayedMonth: DateInterval? {
+        Calendar.current.dateInterval(of: .month, for: selectedDate)
+    }
+
     private var monthDays: [CalendarDay] {
         let calendar = Calendar.current
         let selectedDay = calendar.startOfDay(for: selectedDate)
@@ -32,7 +36,7 @@ struct CalendarView: View {
             calendar.startOfDay(for: $0.loggedAt)
         }
 
-        guard let month = calendar.dateInterval(of: .month, for: Date()),
+        guard let month = displayedMonth,
               let dayRange = calendar.range(of: .day, in: .month, for: month.start) else {
             return []
         }
@@ -65,8 +69,7 @@ struct CalendarView: View {
     }
 
     private var monthEventCount: Int {
-        let calendar = Calendar.current
-        guard let month = calendar.dateInterval(of: .month, for: Date()) else {
+        guard let month = displayedMonth else {
             return 0
         }
 
@@ -75,7 +78,7 @@ struct CalendarView: View {
 
     private var activeDaysThisMonth: Int {
         let calendar = Calendar.current
-        guard let month = calendar.dateInterval(of: .month, for: Date()) else {
+        guard let month = displayedMonth else {
             return 0
         }
 
@@ -87,6 +90,16 @@ struct CalendarView: View {
             days.insert(calendar.startOfDay(for: event.loggedAt))
         }
         .count
+    }
+
+    private var canMoveToNextMonth: Bool {
+        let calendar = Calendar.current
+        guard let displayedMonthStart = displayedMonth?.start,
+              let currentMonth = calendar.dateInterval(of: .month, for: Date()) else {
+            return false
+        }
+
+        return displayedMonthStart < currentMonth.start
     }
 
     var body: some View {
@@ -121,13 +134,39 @@ struct CalendarView: View {
 
     private var monthOverview: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(Self.monthFormatter.string(from: Date()))
-                    .font(.title3.weight(.semibold))
+            HStack(spacing: 12) {
+                Button {
+                    moveMonth(by: -1)
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Previous month")
 
-                Text(monthSummary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(Self.monthFormatter.string(from: selectedDate))
+                        .font(.title3.weight(.semibold))
+
+                    Text(monthSummary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    moveMonth(by: 1)
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(canMoveToNextMonth ? .primary : .secondary)
+                .disabled(!canMoveToNextMonth)
+                .accessibilityLabel("Next month")
             }
 
             HStack(spacing: 8) {
@@ -212,6 +251,14 @@ struct CalendarView: View {
         .accessibilityAddTraits(selectedCategoryID == categoryID ? .isSelected : [])
     }
 
+    private func moveMonth(by value: Int) {
+        guard let newDate = Calendar.current.date(byAdding: .month, value: value, to: selectedDate) else {
+            return
+        }
+
+        selectedDate = newDate
+    }
+
     private func removeEvent(_ event: LoggedEvent) {
         storedEvents = LoggedEventStorage.removing(eventID: event.id, from: storedEvents)
     }
@@ -236,7 +283,7 @@ struct CalendarView: View {
 
     private static let selectedDayFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM d"
+        formatter.dateFormat = "MMMM d, yyyy"
         return formatter
     }()
 
