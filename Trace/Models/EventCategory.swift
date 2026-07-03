@@ -135,6 +135,16 @@ enum LoggedEventStorage {
         events[index].note = LoggedEvent.normalizedNote(note)
         return encode(events)
     }
+
+    static func updatingLoggedAt(_ loggedAt: Date, eventID: UUID, in data: String) -> String {
+        var events = decode(data)
+        guard let index = events.firstIndex(where: { $0.id == eventID }) else {
+            return data
+        }
+
+        events[index].loggedAt = loggedAt
+        return encode(events)
+    }
 }
 
 enum TraceSettingsStorage {

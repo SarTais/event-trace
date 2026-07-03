@@ -143,6 +143,9 @@ struct HomeView: View {
                     onUpdateNote: { note in
                         updateNote(note, for: lastEvent)
                     },
+                    onUpdateLoggedAt: { loggedAt in
+                        updateLoggedAt(loggedAt, for: lastEvent)
+                    },
                     onDelete: {
                         removeEvent(lastEvent)
                     }
@@ -209,6 +212,9 @@ struct HomeView: View {
                             onUpdateNote: { note in
                                 updateNote(note, for: event)
                             },
+                            onUpdateLoggedAt: { loggedAt in
+                                updateLoggedAt(loggedAt, for: event)
+                            },
                             onDelete: {
                                 removeEvent(event)
                             }
@@ -230,6 +236,10 @@ struct HomeView: View {
         storedEvents = LoggedEventStorage.updatingNote(note, eventID: event.id, in: storedEvents)
     }
 
+    private func updateLoggedAt(_ loggedAt: Date, for event: HomeEvent) {
+        storedEvents = LoggedEventStorage.updatingLoggedAt(loggedAt, eventID: event.id, in: storedEvents)
+    }
+
     private func homeEvent(from event: LoggedEvent) -> HomeEvent? {
         let category = categories.first { $0.id == event.categoryID }
 
@@ -238,6 +248,7 @@ struct HomeView: View {
             title: event.title,
             category: category?.name ?? "Deleted category",
             time: relativeTime(for: event.loggedAt),
+            loggedAt: event.loggedAt,
             note: event.note,
             icon: category?.icon ?? EventCategory.fallbackIcon,
             color: category?.tintColor ?? .gray
@@ -297,6 +308,7 @@ private struct HomeEvent: Identifiable {
     let title: String
     let category: String
     let time: String
+    let loggedAt: Date
     let note: String?
     let icon: String
     let color: Color
@@ -341,11 +353,14 @@ private struct EventRow: View {
     let showsDivider: Bool
     let requiresDeleteConfirmation: Bool
     let onUpdateNote: (String?) -> Void
+    let onUpdateLoggedAt: (Date) -> Void
     let onDelete: () -> Void
     @State private var isShowingDeleteConfirmation = false
     @State private var isShowingNote = false
     @State private var isShowingNoteEditor = false
+    @State private var isShowingDateTimeEditor = false
     @State private var draftNote = ""
+    @State private var draftLoggedAt = Date()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -427,6 +442,13 @@ private struct EventRow: View {
                     Label(event.hasNote ? "Edit Note" : "Add Note", systemImage: "note.text")
                 }
 
+                Button {
+                    draftLoggedAt = event.loggedAt
+                    isShowingDateTimeEditor = true
+                } label: {
+                    Label("Edit Date & Time", systemImage: "calendar.badge.clock")
+                }
+
                 if event.hasNote {
                     Button(role: .destructive) {
                         onUpdateNote(nil)
@@ -444,6 +466,14 @@ private struct EventRow: View {
                     onUpdateNote(normalizedNote)
                     isShowingNote = normalizedNote != nil
                     isShowingNoteEditor = false
+                }
+            }
+            .sheet(isPresented: $isShowingDateTimeEditor) {
+                EventDateTimeEditor(eventTitle: event.title, loggedAt: $draftLoggedAt) {
+                    isShowingDateTimeEditor = false
+                } onSave: {
+                    onUpdateLoggedAt(draftLoggedAt)
+                    isShowingDateTimeEditor = false
                 }
             }
 

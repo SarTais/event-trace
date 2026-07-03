@@ -263,11 +263,15 @@ struct CalendarView: View {
                             title: event.title,
                             category: categoryName(for: event),
                             time: Self.timeFormatter.string(from: event.loggedAt),
+                            loggedAt: event.loggedAt,
                             note: event.note,
                             color: categoryColor(for: event),
                             requiresDeleteConfirmation: requireConfirmationBeforeDelete,
                             onUpdateNote: { note in
                                 updateNote(note, for: event)
+                            },
+                            onUpdateLoggedAt: { loggedAt in
+                                updateLoggedAt(loggedAt, for: event)
                             },
                             onDelete: {
                                 removeEvent(event)
@@ -339,6 +343,11 @@ struct CalendarView: View {
 
     private func updateNote(_ note: String?, for event: LoggedEvent) {
         storedEvents = LoggedEventStorage.updatingNote(note, eventID: event.id, in: storedEvents)
+    }
+
+    private func updateLoggedAt(_ loggedAt: Date, for event: LoggedEvent) {
+        storedEvents = LoggedEventStorage.updatingLoggedAt(loggedAt, eventID: event.id, in: storedEvents)
+        selectedDate = loggedAt
     }
 
     private func category(for event: LoggedEvent) -> EventCategory? {
@@ -425,15 +434,19 @@ private struct CalendarEventRow: View {
     let title: String
     let category: String
     let time: String
+    let loggedAt: Date
     let note: String?
     let color: Color
     let requiresDeleteConfirmation: Bool
     let onUpdateNote: (String?) -> Void
+    let onUpdateLoggedAt: (Date) -> Void
     let onDelete: () -> Void
     @State private var isShowingDeleteConfirmation = false
     @State private var isShowingNote = false
     @State private var isShowingNoteEditor = false
+    @State private var isShowingDateTimeEditor = false
     @State private var draftNote = ""
+    @State private var draftLoggedAt = Date()
 
     private var hasNote: Bool {
         note?.isEmpty == false
@@ -515,6 +528,13 @@ private struct CalendarEventRow: View {
                 Label(hasNote ? "Edit Note" : "Add Note", systemImage: "note.text")
             }
 
+            Button {
+                draftLoggedAt = loggedAt
+                isShowingDateTimeEditor = true
+            } label: {
+                Label("Edit Date & Time", systemImage: "calendar.badge.clock")
+            }
+
             if hasNote {
                 Button(role: .destructive) {
                     onUpdateNote(nil)
@@ -532,6 +552,14 @@ private struct CalendarEventRow: View {
                 onUpdateNote(normalizedNote)
                 isShowingNote = normalizedNote != nil
                 isShowingNoteEditor = false
+            }
+        }
+        .sheet(isPresented: $isShowingDateTimeEditor) {
+            EventDateTimeEditor(eventTitle: title, loggedAt: $draftLoggedAt) {
+                isShowingDateTimeEditor = false
+            } onSave: {
+                onUpdateLoggedAt(draftLoggedAt)
+                isShowingDateTimeEditor = false
             }
         }
     }
